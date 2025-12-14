@@ -4,12 +4,44 @@ tg?.expand();
 
 const view = document.getElementById("view");
 const subtitle = document.getElementById("subtitle");
-
 const modalBackdrop = document.getElementById("modal_backdrop");
 const modal = document.getElementById("modal");
 const btnSettings = document.getElementById("btn_settings");
 
-// ===== Modal stack: “назад” в модалках =====
+// ===== helpers =====
+function toast(text){
+  if (tg?.showToast) tg.showToast({ text });
+  else if (tg?.showPopup) tg.showPopup({ message: text });
+  else alert(text);
+}
+function fmt(n){
+  const x = Math.round(Number(n)||0);
+  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+function nowShort(){
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mm = String(d.getMinutes()).padStart(2,"0");
+  return `${hh}:${mm}`;
+}
+function escapeHtml(s){ return String(s??"").replace(/[&<>\"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+// ===== per-user local storage =====
+const tgUserId = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "anon";
+const STORAGE_KEY = `fp_state_v1_${tgUserId}`;
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+function saveState(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+// ===== modal stack (“назад”) =====
 const modalStack = [];
 function openModal(html, push=true){
   if (push && modal.innerHTML.trim()) modalStack.push(modal.innerHTML);
@@ -19,7 +51,6 @@ function openModal(html, push=true){
 function modalBack(){
   if (!modalStack.length) return;
   modal.innerHTML = modalStack.pop();
-  // важно: после возврата нужно перевесить события
   wireModalHandlers();
 }
 function closeModal(){
@@ -31,64 +62,8 @@ modalBackdrop.addEventListener("click", (e)=>{
   if (e.target === modalBackdrop) closeModal();
 });
 
-function toast(text){
-  if (tg?.showToast) tg.showToast({ text });
-  else if (tg?.showPopup) tg.showPopup({ message: text });
-  else alert(text);
-}
-
-function fmt(n){
-  const x = Math.round(Number(n)||0);
-  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-}
-
-// ===== App state (UI-only MVP) =====
-const state = {
-  tab: "home",
-  // пока это UI-заглушки, чтобы ты допилил интерфейс
-  // позже подключим реальные данные
-  totalBalance: 82000,
-  accounts: [
-    { name:"Основной", balance:57200 },
-    { name:"Личные", balance:25000 },
-    { name:"Карманные", balance:7300 },
-    { name:"Наличные", balance:2100 },
-  ],
-  plan: {
-    income_total: 35000,
-    income_done: 20000,
-    expense_total: 58000,
-    expense_done: 19000,
-    over_income: 1000,
-    over_expense: 0,
-    items_income: [
-      { id:1, title:"зарплата", planned:35000, done:20000, left:15000, kind:"income" }
-    ],
-    items_expense: [
-      { id:2, title:"квартира", planned:19000, done:19000, left:0, kind:"expense" },
-      { id:3, title:"продукты", planned:14000, done:0, left:14000, kind:"expense" },
-      { id:4, title:"карманные", planned:25000, done:0, left:25000, kind:"expense" }
-    ]
-  },
-  lastTx: [
-    { type:"expense", title:"квартира", amount:19000, account:"Основной", when:"сегодня" },
-    { type:"income", title:"зарплата", amount:20000, account:"Основной", when:"сегодня" }
-  ],
-  selectedAccount: "Основной",
-  selectedCat: null,
-  selectedSrc: null,
-};
-
-function setSubtitle(){
-  const u = tg?.initDataUnsafe?.user;
-  if (u?.first_name) subtitle.textContent = `Пользователь: ${u.first_name}`;
-  else subtitle.textContent = "";
-}
-setSubtitle();
-
+// ===== sendData (пока так; позже уберём перекидывание через API) =====
 function sendToBot(payload){
-  // Это MVP-режим через sendData.
-  // Да, Telegram может закрывать WebView — мы это уберём позже через API.
   try{
     tg?.sendData(JSON.stringify(payload));
   }catch(e){
@@ -96,32 +71,136 @@ function sendToBot(payload){
   }
 }
 
-// ===== Navigation =====
-function nav(tab){
-  state.tab = tab;
-  document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-  render();
+// ===== state (БЕЗ ФЕЙКОВЫХ ДАННЫХ) =====
+const defaultState = {
+  tab: "home",
+  selectedAccount: null,
+  selectedCat: null,
+  selectedSrc: null,
+
+  accounts: [], // [{name,balance}]
+  plan: {
+    income: [],  // [{title, planned, done}]
+    expense: [], // [{title, planned, done}]
+    over_income: 0,
+    over_expense: 0,
+  },
+  ops: [] // [{kind, title, amount, account, when}]
+};
+
+let state = loadState() || structuredClone(defaultState);
+
+function setSubtitle(){
+  const u = tg?.initDataUnsafe?.user;
+  subtitle.textContent = u?.first_name ? `Пользователь: ${u.first_name}` : "";
 }
-document.querySelectorAll(".navbtn").forEach(b => b.addEventListener("click", ()=> nav(b.dataset.tab)));
+setSubtitle();
 
-// ===== Settings =====
-btnSettings.addEventListener("click", ()=>{
-  openModal(`
-    <div class="modalbar">
-      <button class="backbtn" id="m_close">Закрыть</button>
-      <div class="muted">Настройки</div>
-      <div style="width:80px"></div>
-    </div>
-    <button class="btn ghost" id="m_help">Как это работает</button>
-    <div style="height:10px"></div>
-    <button class="btn ghost" id="m_setup">Первичная настройка</button>
-  `, false);
-  wireModalHandlers();
-});
+// ===== calculations =====
+function totalBalance(){
+  return state.accounts.reduce((s,a)=>s + (Number(a.balance)||0), 0);
+}
+function planTotals(){
+  const income_total = state.plan.income.reduce((s,p)=>s + p.planned, 0);
+  const income_done  = state.plan.income.reduce((s,p)=>s + Math.min(p.done, p.planned), 0);
+  const expense_total = state.plan.expense.reduce((s,p)=>s + p.planned, 0);
+  const expense_done  = state.plan.expense.reduce((s,p)=>s + Math.min(p.done, p.planned), 0);
+  return { income_total, income_done, expense_total, expense_done };
+}
+function mergePlan(kind, title, amount){
+  title = String(title||"").trim().toLowerCase();
+  if (!title) return;
+  amount = Number(amount)||0;
+  if (amount <= 0) return;
 
-// ===== Onboarding =====
+  const arr = kind === "income" ? state.plan.income : state.plan.expense;
+  const idx = arr.findIndex(x=>x.title === title);
+  if (idx >= 0) arr[idx].planned += amount;
+  else arr.push({ title, planned: amount, done: 0 });
+
+  saveState();
+}
+function applyToPlan(kind, title, amount){
+  title = String(title||"").trim().toLowerCase();
+  amount = Number(amount)||0;
+  if (amount <= 0) return;
+
+  const arr = kind === "income" ? state.plan.income : state.plan.expense;
+  const p = arr.find(x=>x.title === title);
+  if (!p){
+    // если нет плана — считаем как сверх плана
+    if (kind === "income") state.plan.over_income += amount;
+    else state.plan.over_expense += amount;
+    saveState();
+    return;
+  }
+
+  const left = Math.max(0, p.planned - p.done);
+  const main = Math.min(left, amount);
+  const over = Math.max(0, amount - main);
+
+  p.done += main;
+  if (over > 0){
+    if (kind === "income") state.plan.over_income += over;
+    else state.plan.over_expense += over;
+  }
+  saveState();
+}
+
+function ensureAccount(name){
+  name = String(name||"").trim();
+  if (!name) return null;
+  let a = state.accounts.find(x=>x.name === name);
+  if (!a){
+    a = { name, balance: 0 };
+    state.accounts.push(a);
+  }
+  if (!state.selectedAccount) state.selectedAccount = name;
+  saveState();
+  return a;
+}
+function updateAccount(name, delta){
+  const a = ensureAccount(name);
+  if (!a) return;
+  a.balance = (Number(a.balance)||0) + (Number(delta)||0);
+  saveState();
+}
+function addOp(kind, title, amount, account){
+  state.ops.unshift({
+    kind,
+    title,
+    amount,
+    account,
+    when: nowShort()
+  });
+  // ограничим историю локально, чтобы не раздувать storage
+  if (state.ops.length > 200) state.ops.length = 200;
+  saveState();
+}
+
+// ===== parsing bulk plan =====
+function parseBulk(text){
+  const out = [];
+  if (!text) return out;
+  const parts = text.replace(/;/g,",").replace(/\n/g,",").split(",").map(s=>s.trim()).filter(Boolean);
+  for (const p of parts){
+    // формат: 35000 зарплата
+    const m = p.match(/^([0-9 ]+|[0-9]+к)\s+(.+)$/i);
+    if (!m) continue;
+    let amtRaw = m[1].replace(/\s+/g,"").toLowerCase();
+    let amt = 0;
+    if (amtRaw.endsWith("к")) amt = parseInt(amtRaw.slice(0,-1),10)*1000;
+    else amt = parseInt(amtRaw,10);
+    const name = m[2].trim().toLowerCase();
+    if (!Number.isFinite(amt) || amt<=0 || !name) continue;
+    out.push([amt,name]);
+  }
+  return out;
+}
+
+// ===== onboarding =====
 function openOnboarding(force=false){
-  const key = "fp_onboarded_v2";
+  const key = `fp_onboarded_v1_${tgUserId}`;
   if (!force && localStorage.getItem(key) === "1") return;
 
   openModal(`
@@ -138,16 +217,16 @@ function openOnboarding(force=false){
 
     <div class="card" style="margin:0 0 10px; padding:12px">
       <h2 style="margin:0 0 6px">План</h2>
-      <div class="muted">Запланируй доходы и расходы. Факт закрывает план автоматически.</div>
+      <div class="muted">Запланируй доходы и расходы. Когда фиксируешь факт — пункт плана закрывается.</div>
     </div>
 
     <div class="card" style="margin:0 0 10px; padding:12px">
       <h2 style="margin:0 0 6px">Сбережения</h2>
-      <div class="muted">Сбережения — это сейф. Здесь ты хранишь и копишь деньги. Они не участвуют в повседневных расходах и не тратятся случайно.</div>
+      <div class="muted">Сбережения — это сейф. Здесь ты хранишь и копишь деньги. Они не тратятся случайно.</div>
     </div>
 
     <div class="actions">
-      <button class="btn" id="ob_start">Далее</button>
+      <button class="btn" id="ob_next">Далее</button>
       <button class="btn ghost" id="ob_skip">Пропустить</button>
     </div>
   `, false);
@@ -155,19 +234,21 @@ function openOnboarding(force=false){
   wireModalHandlers();
 
   document.getElementById("ob_skip").onclick = ()=>{
-    localStorage.setItem(key, "1");
+    localStorage.setItem(key,"1");
     closeModal();
   };
-  document.getElementById("ob_start").onclick = ()=>{
-    localStorage.setItem(key, "1");
+
+  document.getElementById("ob_next").onclick = ()=>{
+    localStorage.setItem(key,"1");
     closeModal();
-    openSetupStepAccounts();
+    openSetupAccounts();
   };
 }
 
-// ===== Setup step 1: accounts (toggle) =====
-function openSetupStepAccounts(){
-  const selected = new Set(["Основной","Личные","Карманные","Наличные"]);
+function openSetupAccounts(){
+  const all = ["Основной","Личные","Карманные","Наличные"];
+  // если уже были — покажем текущие
+  const selected = new Set(state.accounts.length ? state.accounts.map(a=>a.name) : all);
 
   openModal(`
     <div class="modalbar">
@@ -176,12 +257,12 @@ function openSetupStepAccounts(){
     </div>
 
     <h3>Конверты</h3>
-    <div class="muted">Тап по выбранному конверту снимает выбор. Нужен хотя бы один.</div>
+    <div class="muted">Нажми ещё раз на выбранный конверт — выбор снимется. Нужен хотя бы один.</div>
     <div style="height:10px"></div>
 
-    <div class="grid2">
-      ${["Основной","Личные","Карманные","Наличные"].map(a=>`
-        <button class="pill sel" data-acc="${a}">${a}</button>
+    <div class="grid2" id="acc_grid">
+      ${all.map(a=>`
+        <button class="pill ${selected.has(a)?"sel":""}" data-acc="${a}">${a}</button>
       `).join("")}
     </div>
 
@@ -191,6 +272,7 @@ function openSetupStepAccounts(){
   `, false);
 
   wireModalHandlers();
+
   document.getElementById("m_back").onclick = ()=> openOnboarding(true);
 
   modal.querySelectorAll(".pill[data-acc]").forEach(p=>{
@@ -199,7 +281,7 @@ function openSetupStepAccounts(){
       if (selected.has(a)) { selected.delete(a); p.classList.remove("sel"); }
       else { selected.add(a); p.classList.add("sel"); }
 
-      if (selected.size === 0) {
+      if (selected.size === 0){
         selected.add(a);
         p.classList.add("sel");
         toast("Нужен хотя бы один конверт");
@@ -208,15 +290,28 @@ function openSetupStepAccounts(){
   });
 
   document.getElementById("acc_next").onclick = ()=>{
+    // применяем локально
+    const names = Array.from(selected);
+    state.accounts = names.map(n=>{
+      const old = state.accounts.find(x=>x.name===n);
+      return { name:n, balance: old ? old.balance : 0 };
+    });
+    state.selectedAccount = state.selectedAccount && names.includes(state.selectedAccount)
+      ? state.selectedAccount
+      : names[0];
+
+    saveState();
+
+    // отправляем боту
+    sendToBot({ v:1, type:"setup_accounts", accounts: names });
+
     closeModal();
-    // отправим боту выбранные конверты
-    sendToBot({ v:1, type:"setup_accounts", accounts: Array.from(selected) });
-    openSetupStepPlan();
+    openSetupPlan();
+    render();
   };
 }
 
-// ===== Setup step 2: plan bulk with “назад” =====
-function openSetupStepPlan(){
+function openSetupPlan(){
   openModal(`
     <div class="modalbar">
       <button class="backbtn" id="m_back">Назад</button>
@@ -224,7 +319,7 @@ function openSetupStepPlan(){
     </div>
 
     <h3>План месяца</h3>
-    <div class="muted" style="margin-bottom:10px">Можно вставить списком. Потом всё редактируется.</div>
+    <div class="muted" style="margin-bottom:10px">Можно вставить списком. План будет суммироваться (ничего не слетит).</div>
 
     <div class="card" style="margin:0 0 10px; padding:12px">
       <h2 style="margin:0 0 6px">Доходы</h2>
@@ -251,23 +346,67 @@ function openSetupStepPlan(){
   `, false);
 
   wireModalHandlers();
-  document.getElementById("m_back").onclick = ()=>{ closeModal(); openSetupStepAccounts(); };
+  document.getElementById("m_back").onclick = ()=>{ closeModal(); openSetupAccounts(); };
 
-  document.getElementById("p_skip").onclick = ()=>{
-    closeModal();
-    toast("Ок");
-  };
+  document.getElementById("p_skip").onclick = ()=> closeModal();
 
   document.getElementById("p_done").onclick = ()=>{
     const income = document.getElementById("p_income").value || "";
     const expense = document.getElementById("p_expense").value || "";
-    closeModal();
+
+    // локально добавим (MERGE)
+    for (const [amt,name] of parseBulk(income)) mergePlan("income", name, amt);
+    for (const [amt,name] of parseBulk(expense)) mergePlan("expense", name, amt);
+
+    // отправим боту
     sendToBot({ v:1, type:"plan_bulk", income_text: income, expense_text: expense });
-    toast("План отправлен");
+
+    closeModal();
+    toast("План сохранён");
+    render();
   };
 }
 
-// ===== Render tabs =====
+// ===== UI: settings =====
+btnSettings.addEventListener("click", ()=>{
+  openModal(`
+    <div class="modalbar">
+      <button class="backbtn" id="m_close">Закрыть</button>
+      <div class="muted">Настройки</div>
+      <div style="width:80px"></div>
+    </div>
+
+    <button class="btn ghost" id="m_help">Как это работает</button>
+    <div style="height:10px"></div>
+    <button class="btn ghost" id="m_setup">Первичная настройка</button>
+    <div style="height:10px"></div>
+    <button class="btn ghost" id="m_reset">Сбросить данные на этом устройстве</button>
+  `, false);
+
+  wireModalHandlers();
+
+  document.getElementById("m_help").onclick = ()=>{ closeModal(); openOnboarding(true); };
+  document.getElementById("m_setup").onclick = ()=>{ closeModal(); openSetupAccounts(); };
+  document.getElementById("m_reset").onclick = ()=>{
+    localStorage.removeItem(STORAGE_KEY);
+    state = structuredClone(defaultState);
+    saveState();
+    toast("Сброшено");
+    closeModal();
+    render();
+  };
+});
+
+// ===== navigation =====
+function nav(tab){
+  state.tab = tab;
+  document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  saveState();
+  render();
+}
+document.querySelectorAll(".navbtn").forEach(b => b.addEventListener("click", ()=> nav(b.dataset.tab)));
+
+// ===== render =====
 function render(){
   if (state.tab === "home") return renderHome();
   if (state.tab === "plan") return renderPlan();
@@ -276,20 +415,29 @@ function render(){
 }
 
 function renderHome(){
-  const incPct = state.plan.income_total ? Math.min(100, Math.round((state.plan.income_done/state.plan.income_total)*100)) : 0;
-  const expPct = state.plan.expense_total ? Math.min(100, Math.round((state.plan.expense_done/state.plan.expense_total)*100)) : 0;
+  const tb = totalBalance();
+  const t = planTotals();
+
+  const incPct = t.income_total ? Math.min(100, Math.round((t.income_done/t.income_total)*100)) : 0;
+  const expPct = t.expense_total ? Math.min(100, Math.round((t.expense_done/t.expense_total)*100)) : 0;
 
   view.innerHTML = `
     <section class="card">
       <h2>Баланс</h2>
-      <div class="kpi">${fmt(state.totalBalance)} ₽</div>
+      <div class="kpi">${fmt(tb)} ₽</div>
       <div style="height:10px"></div>
-      <div class="row" id="home_accs">
-        ${state.accounts.slice(0,4).map(a=>`
-          <button class="pill ${a.name===state.selectedAccount?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
-        `).join('')}
-        ${state.accounts.length>4?`<button class="pill" id="acc_more">Ещё…</button>`:''}
-      </div>
+
+      ${state.accounts.length ? `
+        <div class="row" id="home_accs">
+          ${state.accounts.map(a=>`
+            <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">
+              ${a.name} (${fmt(a.balance)})
+            </button>
+          `).join("")}
+        </div>
+      ` : `
+        <div class="muted">Конвертов ещё нет. Нажми ⚙️ → Первичная настройка.</div>
+      `}
     </section>
 
     <section class="card">
@@ -297,13 +445,13 @@ function renderHome(){
 
       <div class="muted">Доходы</div>
       <div class="progress"><div style="width:${incPct}%"></div></div>
-      <div class="muted" style="margin-top:6px">${fmt(state.plan.income_done)} / ${fmt(state.plan.income_total)} ₽</div>
+      <div class="muted" style="margin-top:6px">${fmt(t.income_done)} / ${fmt(t.income_total)} ₽</div>
 
       <div style="height:10px"></div>
 
       <div class="muted">Расходы</div>
       <div class="progress"><div style="width:${expPct}%"></div></div>
-      <div class="muted" style="margin-top:6px">${fmt(state.plan.expense_done)} / ${fmt(state.plan.expense_total)} ₽</div>
+      <div class="muted" style="margin-top:6px">${fmt(t.expense_done)} / ${fmt(t.expense_total)} ₽</div>
 
       <div style="height:10px"></div>
       <div class="muted">Сверх плана: +${fmt(state.plan.over_income)} ₽ · Перерасход: ${fmt(state.plan.over_expense)} ₽</div>
@@ -312,34 +460,36 @@ function renderHome(){
     <section class="card">
       <h2>История</h2>
       <div class="list">
-        ${state.lastTx.map(txItem).join('')}
+        ${state.ops.length ? state.ops.slice(0,15).map(opItem).join("") : `
+          <div class="muted">Пока пусто. Добавь доход или расход во вкладке «Операции».</div>
+        `}
       </div>
-      <div style="height:10px"></div>
-      <button class="btn ghost" id="go_ops">Операции</button>
     </section>
   `;
 
-  document.getElementById("go_ops").onclick = ()=> nav("ops");
-  document.querySelectorAll("#home_accs .pill[data-acc]").forEach(b=>{
-    b.onclick = ()=>{
-      const a = b.dataset.acc;
-      // toggle selection: если нажал на выбранный — снимаем
-      if (state.selectedAccount === a) state.selectedAccount = null;
-      else state.selectedAccount = a;
-      render();
-    };
-  });
+  const accWrap = document.getElementById("home_accs");
+  if (accWrap){
+    accWrap.querySelectorAll(".pill[data-acc]").forEach(b=>{
+      b.onclick = ()=>{
+        const a = b.dataset.acc;
+        // toggle (как ты просил)
+        state.selectedAccount = (state.selectedAccount === a) ? null : a;
+        saveState();
+        render();
+      };
+    });
+  }
 }
 
-function txItem(t){
-  const sign = t.type === "income" ? "+" : (t.type === "expense" ? "−" : "↔");
+function opItem(o){
+  const sign = o.kind === "income" ? "+" : "−";
   return `
     <div class="item">
       <div class="left">
-        <div>${escapeHtml(t.title)}</div>
-        <div class="sub">${escapeHtml(t.account || '')} · ${escapeHtml(t.when || '')}</div>
+        <div>${escapeHtml(o.title)}</div>
+        <div class="sub">${escapeHtml(o.account)} · ${escapeHtml(o.when)}</div>
       </div>
-      <div class="right">${sign}${fmt(t.amount)}</div>
+      <div class="right">${sign}${fmt(o.amount)}</div>
     </div>
   `;
 }
@@ -348,29 +498,32 @@ function renderPlan(){
   view.innerHTML = `
     <section class="card">
       <h2>Планирование</h2>
-      <div class="muted">Добавление списком НЕ должно сбрасывать остальное (это чинится в боте). В UI делаем правильные кнопки.</div>
+      <div class="muted">Добавляй план списком. Если категория уже есть — сумма увеличится.</div>
       <div style="height:10px"></div>
       <button class="btn" id="plan_bulk">Добавить/изменить списком</button>
-      <div style="height:10px"></div>
-      <button class="btn danger" id="plan_clear">Очистить план месяца</button>
     </section>
 
     <section class="card">
       <h2>Доходы</h2>
       <div class="list">
-        ${state.plan.items_income.map(planItem).join('')}
+        ${state.plan.income.length ? state.plan.income.map(planLine).join("") : `<div class="muted">Пока пусто</div>`}
       </div>
     </section>
 
     <section class="card">
       <h2>Расходы</h2>
       <div class="list">
-        ${state.plan.items_expense.map(planItem).join('')}
+        ${state.plan.expense.length ? state.plan.expense.map(planLine).join("") : `<div class="muted">Пока пусто</div>`}
       </div>
+    </section>
+
+    <section class="card">
+      <button class="btn danger" id="plan_clear">Очистить план месяца</button>
     </section>
   `;
 
-  document.getElementById("plan_bulk").onclick = ()=> openSetupStepPlan();
+  document.getElementById("plan_bulk").onclick = ()=> openSetupPlan();
+
   document.getElementById("plan_clear").onclick = ()=>{
     openModal(`
       <div class="modalbar">
@@ -379,28 +532,41 @@ function renderPlan(){
         <div style="width:80px"></div>
       </div>
       <h3>Очистить план?</h3>
-      <div class="muted">Удалится план текущего месяца.</div>
+      <div class="muted">Удалится план на этом устройстве и отправится команда боту.</div>
       <div class="actions">
         <button class="btn danger" id="c_ok">Очистить</button>
         <button class="btn ghost" id="c_no">Отмена</button>
       </div>
     `, false);
+
     wireModalHandlers();
+
     document.getElementById("c_no").onclick = closeModal;
     document.getElementById("c_ok").onclick = ()=>{
-      closeModal();
+      // локально
+      state.plan.income = [];
+      state.plan.expense = [];
+      state.plan.over_income = 0;
+      state.plan.over_expense = 0;
+      saveState();
+
+      // боту
       sendToBot({ v:1, type:"plan_clear" });
-      toast("Отправлено");
+
+      closeModal();
+      toast("План очищен");
+      render();
     };
   };
 }
 
-function planItem(p){
+function planLine(p){
+  const left = Math.max(0, p.planned - p.done);
   return `
     <div class="item">
       <div class="left">
         <div>${escapeHtml(p.title)}</div>
-        <div class="sub">План: ${fmt(p.planned)} · Закрыто: ${fmt(p.done)} · Осталось: ${fmt(p.left)}</div>
+        <div class="sub">План: ${fmt(p.planned)} · Закрыто: ${fmt(p.done)} · Осталось: ${fmt(left)}</div>
       </div>
       <div class="right"></div>
     </div>
@@ -409,37 +575,41 @@ function planItem(p){
 
 function renderOps(){
   const cats = [
-    { key:"продукты", label:"🛒 Продукты", hint:"план" },
-    { key:"квартира", label:"🏠 Квартира", hint:"план" },
-    { key:"карманные", label:"🎒 Карманные", hint:"план" },
-    { key:"транспорт", label:"🚕 Транспорт", hint:"часто" },
-    { key:"кафе", label:"🍽 Кафе", hint:"часто" },
-    { key:"другое", label:"✍️ Другое", hint:"ввод" },
+    ["продукты","🛒 Продукты","план"],
+    ["квартира","🏠 Квартира","план"],
+    ["карманные","🎒 Карманные","план"],
+    ["транспорт","🚕 Транспорт","часто"],
+    ["кафе","🍽 Кафе","часто"],
+    ["другое","✍️ Другое","ввод"],
   ];
 
+  // источники дохода
   const srcs = [
-    { key:"зарплата", label:"💳 Зарплата", hint:"план" },
-    { key:"пенсия", label:"🏦 Пенсия", hint:"план" },
-    { key:"подработка", label:"💳 Подработка", hint:"план" },
-    { key:"незапланированный", label:"➕ Не по плану", hint:"факт" },
-    { key:"другое", label:"✍️ Другое", hint:"ввод" },
+    ["зарплата","💳 Зарплата","план"],
+    ["пенсия","🏦 Пенсия","план"],
+    ["подработка","💳 Подработка","план"],
+    ["незапланированный","➕ Не по плану","факт"],
+    ["другое","✍️ Другое","ввод"],
   ];
 
   view.innerHTML = `
     <section class="card">
       <h2>Операции</h2>
-      <div class="muted">Сумма вводом, остальное — выбором. Повторный тап снимает выбор.</div>
+      <div class="muted">Сумма — вводом. Категория/источник и счёт — кнопками. Повторный тап снимает выбор.</div>
     </section>
 
     <section class="card">
       <h2>Расход</h2>
       <input id="ex_amt" class="input" placeholder="Сумма (например 1000)" inputmode="numeric" />
       <div style="height:10px"></div>
+
       <div class="muted">Категория</div>
       <div class="grid3" id="ex_cats">
-        ${cats.map(c=>`
-          <button class="tag ${state.selectedCat===c.key?'sel':''}" data-cat="${c.key}"><span>${c.label}</span><small>${c.hint}</small></button>
-        `).join('')}
+        ${cats.map(([k,label,h])=>`
+          <button class="tag ${state.selectedCat===k?'sel':''}" data-cat="${k}">
+            <span>${label}</span><small>${h}</small>
+          </button>
+        `).join("")}
       </div>
 
       <div id="ex_other_wrap" class="${state.selectedCat==='другое'?'':'hidden'}" style="margin-top:10px">
@@ -449,9 +619,11 @@ function renderOps(){
       <div style="height:10px"></div>
       <div class="muted">Списать со счёта</div>
       <div class="row" id="ex_accs">
-        ${state.accounts.slice(0,4).map(a=>`
-          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
-        `).join('')}
+        ${state.accounts.length ? state.accounts.map(a=>`
+          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">
+            ${a.name} (${fmt(a.balance)})
+          </button>
+        `).join("") : `<div class="muted">Сначала настрой конверты в ⚙️</div>`}
       </div>
 
       <div style="height:12px"></div>
@@ -462,11 +634,14 @@ function renderOps(){
       <h2>Доход</h2>
       <input id="in_amt" class="input" placeholder="Сумма (например 35000)" inputmode="numeric" />
       <div style="height:10px"></div>
+
       <div class="muted">Источник</div>
       <div class="grid3" id="in_srcs">
-        ${srcs.map(s=>`
-          <button class="tag ${state.selectedSrc===s.key?'sel':''}" data-src="${s.key}"><span>${s.label}</span><small>${s.hint}</small></button>
-        `).join('')}
+        ${srcs.map(([k,label,h])=>`
+          <button class="tag ${state.selectedSrc===k?'sel':''}" data-src="${k}">
+            <span>${label}</span><small>${h}</small>
+          </button>
+        `).join("")}
       </div>
 
       <div id="in_other_wrap" class="${state.selectedSrc==='другое'?'':'hidden'}" style="margin-top:10px">
@@ -476,9 +651,11 @@ function renderOps(){
       <div style="height:10px"></div>
       <div class="muted">Зачислить на счёт</div>
       <div class="row" id="in_accs">
-        ${state.accounts.slice(0,4).map(a=>`
-          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
-        `).join('')}
+        ${state.accounts.length ? state.accounts.map(a=>`
+          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">
+            ${a.name} (${fmt(a.balance)})
+          </button>
+        `).join("") : `<div class="muted">Сначала настрой конверты в ⚙️</div>`}
       </div>
 
       <div style="height:12px"></div>
@@ -486,100 +663,179 @@ function renderOps(){
     </section>
   `;
 
-  // toggle категории
+  // категории — toggle
   document.querySelectorAll("#ex_cats .tag").forEach(b=>{
     b.onclick = ()=>{
       const c = b.dataset.cat;
-      if (state.selectedCat === c) state.selectedCat = null;
-      else state.selectedCat = c;
+      state.selectedCat = (state.selectedCat === c) ? null : c;
+
       // умный дефолт счёта
       if (state.selectedCat === "карманные") state.selectedAccount = "Карманные";
       if (state.selectedCat === "квартира") state.selectedAccount = "Основной";
+
+      saveState();
       render();
     };
   });
 
+  // источники — toggle
   document.querySelectorAll("#in_srcs .tag").forEach(b=>{
     b.onclick = ()=>{
       const s = b.dataset.src;
-      if (state.selectedSrc === s) state.selectedSrc = null;
-      else state.selectedSrc = s;
+      state.selectedSrc = (state.selectedSrc === s) ? null : s;
+      saveState();
       render();
     };
   });
 
-  // toggle счёта
+  // счета — toggle
   document.querySelectorAll("#ex_accs .pill, #in_accs .pill").forEach(b=>{
     b.onclick = ()=>{
       const a = b.dataset.acc;
-      if (state.selectedAccount === a) state.selectedAccount = null;
-      else state.selectedAccount = a;
+      state.selectedAccount = (state.selectedAccount === a) ? null : a;
+      saveState();
       render();
     };
   });
 
+  // save expense
   document.getElementById("ex_save").onclick = ()=>{
-    const amt = (document.getElementById("ex_amt").value||"").trim();
-    if (!amt) return toast("Введи сумму");
+    const amtRaw = (document.getElementById("ex_amt").value||"").trim();
+    const amt = parseInt(amtRaw,10);
+    if (!Number.isFinite(amt) || amt<=0) return toast("Введи сумму");
     if (!state.selectedCat) return toast("Выбери категорию");
     if (!state.selectedAccount) return toast("Выбери счёт");
 
     let cat = state.selectedCat;
-    if (cat === "другое") {
+    if (cat === "другое"){
       cat = (document.getElementById("ex_other").value||"").trim().toLowerCase();
       if (!cat) return toast("Введи категорию");
     }
-    sendToBot({ v:1, type:"expense", amount: amt, category: cat, account: state.selectedAccount });
-    toast("Отправлено");
+
+    // локально
+    updateAccount(state.selectedAccount, -amt);
+    addOp("expense", cat, amt, state.selectedAccount);
+    applyToPlan("expense", cat, amt);
+
+    // боту
+    sendToBot({ v:1, type:"expense", amount: String(amt), category: cat, account: state.selectedAccount });
+
+    toast("Сохранено");
+    document.getElementById("ex_amt").value = "";
+    render();
   };
 
+  // save income
   document.getElementById("in_save").onclick = ()=>{
-    const amt = (document.getElementById("in_amt").value||"").trim();
-    if (!amt) return toast("Введи сумму");
+    const amtRaw = (document.getElementById("in_amt").value||"").trim();
+    const amt = parseInt(amtRaw,10);
+    if (!Number.isFinite(amt) || amt<=0) return toast("Введи сумму");
     if (!state.selectedSrc) return toast("Выбери источник");
     if (!state.selectedAccount) return toast("Выбери счёт");
 
     let src = state.selectedSrc;
-    if (src === "другое") {
+    if (src === "другое"){
       src = (document.getElementById("in_other").value||"").trim().toLowerCase();
       if (!src) return toast("Введи источник");
     }
-    sendToBot({ v:1, type:"income", amount: amt, category: src, account: state.selectedAccount });
-    toast("Отправлено");
+
+    // локально
+    updateAccount(state.selectedAccount, amt);
+    addOp("income", src, amt, state.selectedAccount);
+    applyToPlan("income", src, amt);
+
+    // боту
+    sendToBot({ v:1, type:"income", amount: String(amt), category: src, account: state.selectedAccount });
+
+    toast("Сохранено");
+    document.getElementById("in_amt").value = "";
+    render();
   };
 }
 
 function renderAnalytics(){
+  const tb = totalBalance();
+  const t = planTotals();
+
+  // расходы по категориям (локально)
+  const expMap = new Map();
+  const incMap = new Map();
+  for (const o of state.ops){
+    if (o.kind === "expense"){
+      expMap.set(o.title, (expMap.get(o.title)||0) + o.amount);
+    } else if (o.kind === "income"){
+      incMap.set(o.title, (incMap.get(o.title)||0) + o.amount);
+    }
+  }
+
+  const expArr = Array.from(expMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const incArr = Array.from(incMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  const expSum = expArr.reduce((s,x)=>s+x[1],0) || 1;
+  const incSum = incArr.reduce((s,x)=>s+x[1],0) || 1;
+
   view.innerHTML = `
     <section class="card">
       <h2>Аналитика</h2>
-      <div class="muted">Пока это UI. Позже подключим реальные диаграммы и данные.</div>
+      <div class="muted">Что анализируем: баланс, выполнение плана, топ категорий расходов и источников дохода.</div>
       <div style="height:10px"></div>
-      <button class="btn ghost" id="an_req">Запросить отчёт в чате</button>
+      <div class="muted">Баланс: <b>${fmt(tb)} ₽</b></div>
+      <div class="muted">Доходы: <b>${fmt(t.income_done)} ₽</b> (план ${fmt(t.income_total)} ₽)</div>
+      <div class="muted">Расходы: <b>${fmt(t.expense_done)} ₽</b> (план ${fmt(t.expense_total)} ₽)</div>
+      <div class="muted">Сверх плана: +${fmt(state.plan.over_income)} ₽ · Перерасход: ${fmt(state.plan.over_expense)} ₽</div>
+    </section>
+
+    <section class="card">
+      <h2>Топ расходов</h2>
+      ${expArr.length ? `
+        <div class="list">
+          ${expArr.map(([k,v])=>analyticsLine(k,v,expSum)).join("")}
+        </div>
+      ` : `<div class="muted">Пока нет расходов</div>`}
+    </section>
+
+    <section class="card">
+      <h2>Топ доходов</h2>
+      ${incArr.length ? `
+        <div class="list">
+          ${incArr.map(([k,v])=>analyticsLine(k,v,incSum)).join("")}
+        </div>
+      ` : `<div class="muted">Пока нет доходов</div>`}
+    </section>
+
+    <section class="card">
+      <button class="btn ghost" id="an_chat">Запросить отчёт в чате</button>
     </section>
   `;
-  document.getElementById("an_req").onclick = ()=>{
+
+  document.getElementById("an_chat").onclick = ()=>{
     sendToBot({ v:1, type:"analytics_request" });
-    toast("Отправлено");
+    toast("Запрос отправлен");
   };
 }
 
-// ===== Modal wiring (после modalBack нужно снова навесить) =====
+function analyticsLine(name, value, total){
+  const pct = Math.min(100, Math.round((value/total)*100));
+  return `
+    <div class="item">
+      <div class="left">
+        <div>${escapeHtml(name)}</div>
+        <div class="sub">${pct}% · ${fmt(value)} ₽</div>
+      </div>
+      <div class="right" style="width:120px">
+        <div class="progress"><div style="width:${pct}%"></div></div>
+      </div>
+    </div>
+  `;
+}
+
 function wireModalHandlers(){
   const close = document.getElementById("m_close");
   if (close) close.onclick = closeModal;
   const back = document.getElementById("m_back");
   if (back) back.onclick = modalBack;
-
-  const mHelp = document.getElementById("m_help");
-  if (mHelp) mHelp.onclick = ()=>{ closeModal(); openOnboarding(true); };
-
-  const mSetup = document.getElementById("m_setup");
-  if (mSetup) mSetup.onclick = ()=>{ closeModal(); openSetupStepAccounts(); };
 }
 
 // старт
 openOnboarding(false);
 render();
-
-function escapeHtml(s){ return String(s??"").replace(/[&<>\"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
