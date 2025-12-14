@@ -1,34 +1,255 @@
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Finance Planner</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-</head>
-<body>
-  <header class="top">
-    <div class="brand">
-      <div class="title">Finance Planner</div>
-      <div id="subtitle" class="subtitle"></div>
-    </div>
-    <button id="btn_settings" class="iconbtn" title="Настройки">⚙️</button>
-  </header>
+:root{
+  --bg:#070510;
+  --card:#0f0a1e;
+  --card2:#0c0818;
+  --text:#f6f2ff;
+  --muted:rgba(246,242,255,.70);
+  --bd:rgba(255,255,255,.10);
 
-  <main id="view"></main>
+  --accent:#b76cff;
+  --accent2:#6d28ff;
+  --glow: rgba(183,108,255,.22);
 
-  <nav class="bottom">
-    <button class="navbtn active" data-tab="home">Главная</button>
-    <button class="navbtn" data-tab="plan">Планирование</button>
-    <button class="navbtn" data-tab="ops">Операции</button>
-    <button class="navbtn" data-tab="analytics">Аналитика</button>
-  </nav>
+  --danger:#ff3b66;
 
-  <div id="modal_backdrop" class="backdrop hidden">
-    <div id="modal" class="modal"></div>
-  </div>
+  --shadow: 0 14px 40px rgba(0,0,0,.55);
+  --radius:18px;
+}
 
-  <script src="app.js"></script>
-</body>
-</html>
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  color:var(--text);
+  background:
+    radial-gradient(900px 520px at 20% -10%, rgba(183,108,255,.18), transparent 60%),
+    radial-gradient(820px 520px at 95% 0%, rgba(109,40,255,.14), transparent 62%),
+    linear-gradient(180deg, #070510 0%, #05040d 100%);
+  padding:14px 14px 96px; /* место под нижнее меню */
+}
+
+/* Header */
+.top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+.brand{display:flex; flex-direction:column; gap:4px;}
+.title{font-weight:950; letter-spacing:.2px; font-size:18px;}
+.subtitle{font-size:12px; color:var(--muted);}
+
+.iconbtn{
+  border:1px solid var(--bd);
+  background:rgba(255,255,255,.04);
+  color:var(--text);
+  border-radius:14px;
+  padding:10px 12px;
+  cursor:pointer;
+}
+.iconbtn:active{transform: translateY(1px);}
+
+/* Cards */
+.card{
+  border:1px solid var(--bd);
+  background:
+    radial-gradient(420px 160px at 10% 0%, rgba(183,108,255,.14), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  padding:14px;
+  margin-bottom:12px;
+}
+
+.card h2{
+  margin:0 0 10px;
+  font-size:14px;
+  font-weight:950;
+  letter-spacing:.2px;
+}
+
+.muted{color:var(--muted); font-size:12px;}
+.row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+
+.kpi{
+  font-size:28px;
+  font-weight:950;
+  letter-spacing:.3px;
+  text-shadow: 0 0 18px var(--glow);
+}
+
+/* Pills / tags */
+.pill{
+  border:1px solid var(--bd);
+  background:rgba(255,255,255,.04);
+  padding:10px 12px;
+  border-radius:999px;
+  font-weight:900;
+  color:var(--text);
+  cursor:pointer;
+  white-space:nowrap;
+}
+.pill.sel{
+  border-color: rgba(183,108,255,.55);
+  box-shadow: 0 0 0 2px rgba(183,108,255,.14);
+  background: rgba(183,108,255,.10);
+}
+
+.tag{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border:1px solid var(--bd);
+  background:rgba(255,255,255,.03);
+  padding:10px 12px;
+  border-radius:16px;
+  font-weight:900;
+  cursor:pointer;
+  min-height:44px;
+}
+.tag small{color:var(--muted); font-weight:750;}
+.tag.sel{
+  border-color: rgba(183,108,255,.55);
+  box-shadow: 0 0 0 2px rgba(183,108,255,.14);
+  background: rgba(183,108,255,.10);
+}
+
+/* Inputs */
+.input, textarea, select{
+  width:100%;
+  padding:12px 12px;
+  border-radius:14px;
+  border:1px solid var(--bd);
+  background: rgba(0,0,0,.22);
+  color:var(--text);
+  outline:none;
+}
+.input:focus, textarea:focus, select:focus{
+  border-color: rgba(183,108,255,.55);
+  box-shadow: 0 0 0 2px rgba(183,108,255,.12);
+}
+textarea{min-height:110px; resize:vertical;}
+
+/* Buttons */
+.btn{
+  width:100%;
+  border:0;
+  padding:12px 14px;
+  border-radius:14px;
+  font-weight:950;
+  color:var(--text);
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 14px 30px rgba(183,108,255,.20);
+  cursor:pointer;
+}
+.btn:active{transform: translateY(1px);}
+.btn.ghost{
+  background: rgba(255,255,255,.04);
+  border:1px solid var(--bd);
+  box-shadow:none;
+}
+.btn.danger{
+  background: linear-gradient(135deg, #ff3b66, #ff2d55);
+  box-shadow: 0 14px 30px rgba(255,59,102,.16);
+}
+
+/* Layout helpers */
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.grid3{display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
+@media (max-width:420px){ .grid3{grid-template-columns:repeat(2, 1fr);} }
+
+/* Progress */
+.progress{
+  height:10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.08);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.08);
+}
+.progress > div{
+  height:100%;
+  width:0%;
+  background: linear-gradient(90deg, rgba(183,108,255,.95), rgba(109,40,255,.95));
+}
+
+/* Lists */
+.list{display:flex; flex-direction:column; gap:8px;}
+.item{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:16px;
+  border:1px solid var(--bd);
+  background: rgba(255,255,255,.03);
+}
+.item .left{display:flex; flex-direction:column; gap:2px;}
+.item .right{font-weight:950;}
+.item .sub{font-size:12px; color:var(--muted);}
+
+/* Bottom nav */
+.bottom{
+  position:fixed;
+  left:0; right:0; bottom:0;
+  padding:10px 10px 14px;
+  background: linear-gradient(180deg, transparent, rgba(7,5,16,.80) 25%, rgba(7,5,16,.96));
+  display:flex;
+  gap:8px;
+  backdrop-filter: blur(8px);
+}
+.navbtn{
+  flex:1;
+  border:1px solid var(--bd);
+  background: rgba(255,255,255,.03);
+  color:var(--text);
+  border-radius:16px;
+  padding:12px 10px;
+  font-weight:950;
+  cursor:pointer;
+}
+.navbtn.active{
+  border-color: rgba(183,108,255,.60);
+  box-shadow: 0 0 0 2px rgba(183,108,255,.14);
+  background: rgba(183,108,255,.10);
+}
+
+/* Modal */
+.backdrop{
+  position:fixed; inset:0;
+  background: rgba(0,0,0,.55);
+  display:flex; align-items:flex-end; justify-content:center;
+  padding:14px;
+}
+.hidden{display:none;}
+.modal{
+  width:100%;
+  max-width:560px;
+  border-radius:22px;
+  border:1px solid var(--bd);
+  background:
+    radial-gradient(520px 180px at 15% 0%, rgba(183,108,255,.16), transparent 65%),
+    linear-gradient(180deg, rgba(15,10,30,.98), rgba(10,7,22,.98));
+  box-shadow: var(--shadow);
+  padding:14px;
+}
+.modal h3{margin:0 0 10px; font-size:14px; font-weight:950;}
+.modal .actions{display:flex; gap:10px; margin-top:12px;}
+.modal .actions .btn{flex:1;}
+
+.modalbar{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin-bottom:8px;
+}
+.backbtn{
+  border:1px solid var(--bd);
+  background: rgba(255,255,255,.04);
+  color:var(--text);
+  border-radius:14px;
+  padding:10px 12px;
+  cursor:pointer;
+}
+.backbtn:active{transform: translateY(1px);}
