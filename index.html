@@ -8,110 +8,25 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div id="app">
-    <section id="onboarding" class="screen hidden">
-      <div class="card">
-        <div class="h">Finance Planner</div>
-        <div class="p">Планируй месяц, фиксируй операции, контролируй категории и сбережения.</div>
-        <button class="btn" id="ob_start">Начать настройку</button>
-        <button class="btn ghost" id="ob_skip">Пропустить</button>
-      </div>
-
-      <div class="card">
-        <div class="h">Как это работает</div>
-        <ul class="list">
-          <li><b>План</b> — намерение на месяц (доходы и расходы).</li>
-          <li><b>Деньги</b> — факт (что реально пришло/ушло).</li>
-          <li><b>Конверты</b> — где лежат деньги (карта, наличные, личные).</li>
-          <li><b>Сбережения</b> — сейф. Здесь ты хранишь и копишь деньги. Они не участвуют в повседневных расходах и не тратятся случайно.</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="setup" class="screen hidden">
-      <div class="card">
-        <div class="h">Первичная настройка</div>
-        <div class="p">Выбери конверты. Один будет основным (по умолчанию для операций).</div>
-
-        <div class="chips" id="acc_presets">
-          <button class="chip" data-acc="Основной">💳 Основной</button>
-          <button class="chip" data-acc="Личные">💵 Личные</button>
-          <button class="chip" data-acc="Карманные">🎒 Карманные</button>
-          <button class="chip" data-acc="Наличные">💵 Наличные</button>
-        </div>
-
-        <div class="row mt8">
-          <input id="acc_custom" class="input" placeholder="Добавить конверт (например: Вторая карта)" />
-          <button class="btn smallbtn" id="acc_add">Добавить</button>
-        </div>
-
-        <div class="mt10 small">Текущие конверты:</div>
-        <div id="acc_list" class="listbox"></div>
-
-        <div class="mt10">
-          <div class="small">Основной конверт:</div>
-          <select id="acc_default" class="input"></select>
-        </div>
-
-        <div class="mt10">
-          <div class="h">Сбережения</div>
-          <div class="p">Сбережения — сейф. Можно пополнять и снимать. Баланс не обнуляется по месяцам.</div>
-          <div class="row">
-            <label class="toggle"><input type="checkbox" id="savings_enabled" /> Включить сейф</label>
-          </div>
-          <input id="savings_name" class="input mt8" placeholder="Название сейфа (по умолчанию: Сбережения)" />
-          <input id="savings_start" class="input mt8" placeholder="Стартовая сумма (например 120000)" inputmode="decimal" />
-        </div>
-
-        <div class="mt10">
-          <button class="btn" id="setup_next">Далее</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="h">План месяца</div>
-        <div class="p">Можно списком. Через запятую, точку с запятой или с новой строки.</div>
-
-        <div class="small mt8">План доходов</div>
-        <textarea id="plan_income" class="textarea" rows="4" placeholder="Пример:
-35000 зарплата,
-15000 пенсия,
-15000 подработка"></textarea>
-
-        <div class="small mt8">План расходов</div>
-        <textarea id="plan_expense" class="textarea" rows="4" placeholder="Пример:
-14000 продукты,
-19000 квартира,
-25000 карманные"></textarea>
-
-        <button class="btn mt10" id="plan_save">Сохранить план</button>
-        <div class="small mt8" id="plan_result"></div>
-      </div>
-    </section>
-
-    <section id="main" class="screen hidden">
-      <header class="top">
-        <div class="title">Finance Planner</div>
-        <div class="subtitle" id="subtitle"></div>
-      </header>
-
-      <main id="content" class="content"></main>
-
-      <nav class="bottom">
-        <button class="nav active" data-tab="home">Главная</button>
-        <button class="nav" data-tab="plan">Планирование</button>
-        <button class="nav" data-tab="ops">Операции</button>
-        <button class="nav" data-tab="analytics">Аналитика</button>
-      </nav>
-    </section>
-
-    <div id="modal" class="modal hidden">
-      <div class="modal_card">
-        <div class="modal_h" id="modal_title">Выбери</div>
-        <div id="modal_body"></div>
-        <button class="btn ghost mt10" id="modal_close">Закрыть</button>
-      </div>
+  <header class="top">
+    <div class="brand">
+      <div class="title">Finance Planner</div>
+      <div id="subtitle" class="subtitle"></div>
     </div>
+    <button id="btn_settings" class="iconbtn" title="Настройки">⚙️</button>
+  </header>
+
+  <main id="view"></main>
+
+  <nav class="bottom">
+    <button class="navbtn active" data-tab="home">Главная</button>
+    <button class="navbtn" data-tab="plan">Планирование</button>
+    <button class="navbtn" data-tab="ops">Операции</button>
+    <button class="navbtn" data-tab="analytics">Аналитика</button>
+  </nav>
+
+  <div id="modal_backdrop" class="backdrop hidden">
+    <div id="modal" class="modal"></div>
   </div>
 
   <script src="app.js"></script>
