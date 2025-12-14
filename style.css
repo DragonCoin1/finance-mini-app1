@@ -1,231 +1,34 @@
-:root{
-  --bg:#0b0714;
-  --card:#140a2a;
-  --text:#f5f2ff;
-  --muted:rgba(245,242,255,.7);
-  --bd:rgba(255,255,255,.12);
-  --accent:#a56bff;
-  --accent2:#6d28ff;
-  --danger:#ff4d6d;
-  --ok:#22c55e;
-  --shadow: 0 12px 32px rgba(0,0,0,.40);
-  --radius:18px;
-}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Finance Planner</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="title">Finance Planner</div>
+      <div id="subtitle" class="subtitle"></div>
+    </div>
+    <button id="btn_settings" class="iconbtn" title="Настройки">⚙️</button>
+  </header>
 
-*{box-sizing:border-box;}
-html,body{height:100%;}
-body{
-  margin:0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-  background:
-    radial-gradient(1200px 600px at 30% 0%, rgba(165,107,255,.18), transparent 60%),
-    radial-gradient(900px 500px at 90% 10%, rgba(109,40,255,.14), transparent 60%),
-    var(--bg);
-  color:var(--text);
-  padding:14px 14px 84px;
-}
+  <main id="view"></main>
 
-.top{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom:12px;
-}
-.brand{display:flex; flex-direction:column; gap:4px;}
-.title{font-weight:900; letter-spacing:.2px; font-size:18px;}
-.subtitle{font-size:12px; color:var(--muted);}
+  <nav class="bottom">
+    <button class="navbtn active" data-tab="home">Главная</button>
+    <button class="navbtn" data-tab="plan">Планирование</button>
+    <button class="navbtn" data-tab="ops">Операции</button>
+    <button class="navbtn" data-tab="analytics">Аналитика</button>
+  </nav>
 
-.iconbtn{
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.04);
-  color:var(--text);
-  border-radius:14px;
-  padding:10px 12px;
-}
+  <div id="modal_backdrop" class="backdrop hidden">
+    <div id="modal" class="modal"></div>
+  </div>
 
-.card{
-  border:1px solid var(--bd);
-  background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-  box-shadow: var(--shadow);
-  border-radius: var(--radius);
-  padding:14px;
-  margin-bottom:12px;
-  position:relative;
-  overflow:hidden;
-}
-/* Неоновая “дорогая” подсветка */
-.card::before{
-  content:"";
-  position:absolute;
-  inset:-2px;
-  border-radius: var(--radius);
-  background:
-    radial-gradient(600px 120px at 20% 0%, rgba(165,107,255,.18), transparent 60%),
-    radial-gradient(600px 120px at 80% 0%, rgba(109,40,255,.16), transparent 60%);
-  pointer-events:none;
-}
-.card::after{
-  content:"";
-  position:absolute;
-  left:14px; right:14px; top:12px;
-  height:1px;
-  background: linear-gradient(90deg, transparent, rgba(165,107,255,.55), transparent);
-  opacity:.55;
-  pointer-events:none;
-}
-
-.card h2{margin:0 0 8px; font-size:14px; font-weight:900;}
-.muted{color:var(--muted); font-size:12px;}
-.row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
-.kpi{font-size:28px; font-weight:950; letter-spacing:.2px; text-shadow: 0 0 18px rgba(165,107,255,.28);}
-
-.pill{
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.04);
-  padding:10px 12px;
-  border-radius:999px;
-  font-weight:850;
-  color:var(--text);
-  cursor:pointer;
-}
-.pill.sel{
-  border-color: rgba(165,107,255,.65);
-  box-shadow: 0 0 0 2px rgba(165,107,255,.16);
-}
-
-.btn{
-  width:100%;
-  border:0;
-  padding:12px 14px;
-  border-radius:14px;
-  font-weight:950;
-  color:var(--text);
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  box-shadow: 0 10px 25px rgba(165,107,255,.18);
-  cursor:pointer;
-}
-.btn.ghost{
-  background:rgba(255,255,255,.04);
-  border:1px solid var(--bd);
-  box-shadow:none;
-  font-weight:900;
-}
-.btn.danger{
-  background: linear-gradient(135deg, #ff3b66, #ff2d55);
-}
-
-.input, textarea, select{
-  width:100%;
-  padding:12px 12px;
-  border-radius:14px;
-  border:1px solid var(--bd);
-  background:rgba(0,0,0,.22);
-  color:var(--text);
-  outline:none;
-}
-textarea{min-height:110px; resize:vertical;}
-
-.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
-.grid3{display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
-@media (max-width:420px){ .grid3{grid-template-columns:repeat(2, 1fr);} }
-
-.tag{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.03);
-  padding:10px 12px;
-  border-radius:16px;
-  font-weight:900;
-  cursor:pointer;
-}
-.tag small{color:var(--muted); font-weight:750;}
-
-.tag.sel{
-  border-color: rgba(165,107,255,.65);
-  box-shadow: 0 0 0 2px rgba(165,107,255,.16);
-}
-
-.progress{
-  height:10px;
-  border-radius:999px;
-  background:rgba(255,255,255,.08);
-  overflow:hidden;
-  border:1px solid rgba(255,255,255,.08);
-}
-.progress > div{
-  height:100%;
-  width:0%;
-  background: linear-gradient(90deg, rgba(165,107,255,.9), rgba(109,40,255,.95));
-}
-
-.list{display:flex; flex-direction:column; gap:8px;}
-.item{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:10px;
-  padding:10px 12px;
-  border-radius:16px;
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.03);
-}
-.item .left{display:flex; flex-direction:column; gap:2px;}
-.item .right{font-weight:950;}
-.item .sub{font-size:12px; color:var(--muted);}
-
-.bottom{
-  position:fixed;
-  left:0; right:0; bottom:0;
-  padding:10px 10px 14px;
-  background: linear-gradient(180deg, transparent, rgba(11,7,20,.85) 30%, rgba(11,7,20,.95));
-  display:flex;
-  gap:8px;
-}
-.navbtn{
-  flex:1;
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.03);
-  color:var(--text);
-  border-radius:16px;
-  padding:12px 10px;
-  font-weight:950;
-  cursor:pointer;
-}
-.navbtn.active{
-  border-color: rgba(165,107,255,.7);
-  box-shadow: 0 0 0 2px rgba(165,107,255,.16);
-}
-
-.backdrop{
-  position:fixed; inset:0;
-  background:rgba(0,0,0,.55);
-  display:flex; align-items:flex-end; justify-content:center;
-  padding:14px;
-}
-.hidden{display:none;}
-.modal{
-  width:100%;
-  max-width:560px;
-  border-radius:22px;
-  border:1px solid var(--bd);
-  background: linear-gradient(180deg, rgba(20,10,42,.98), rgba(15,8,34,.98));
-  box-shadow: var(--shadow);
-  padding:14px;
-}
-.modal h3{margin:0 0 10px; font-size:14px; font-weight:950;}
-.modal .actions{display:flex; gap:10px; margin-top:12px;}
-.modal .actions .btn{flex:1;}
-
-.modalbar{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-  margin-bottom:8px;
-}
-.backbtn{
-  border:1px solid var(--bd);
-  background:rgba(255,255,255,.04);
-  color:var(--text);
-  border-radius:14px;
-  padding:10px 12px;
-  cursor:pointer;
-}
+  <script src="app.js"></script>
+</body>
+</html>
