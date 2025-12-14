@@ -2,552 +2,584 @@ const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
 
-const $ = (id) => document.getElementById(id);
+const view = document.getElementById("view");
+const subtitle = document.getElementById("subtitle");
 
+const modalBackdrop = document.getElementById("modal_backdrop");
+const modal = document.getElementById("modal");
+const btnSettings = document.getElementById("btn_settings");
+
+// ===== Modal stack: “назад” в модалках =====
+const modalStack = [];
+function openModal(html, push=true){
+  if (push && modal.innerHTML.trim()) modalStack.push(modal.innerHTML);
+  modal.innerHTML = html;
+  modalBackdrop.classList.remove("hidden");
+}
+function modalBack(){
+  if (!modalStack.length) return;
+  modal.innerHTML = modalStack.pop();
+  // важно: после возврата нужно перевесить события
+  wireModalHandlers();
+}
+function closeModal(){
+  modalStack.length = 0;
+  modalBackdrop.classList.add("hidden");
+  modal.innerHTML = "";
+}
+modalBackdrop.addEventListener("click", (e)=>{
+  if (e.target === modalBackdrop) closeModal();
+});
+
+function toast(text){
+  if (tg?.showToast) tg.showToast({ text });
+  else if (tg?.showPopup) tg.showPopup({ message: text });
+  else alert(text);
+}
+
+function fmt(n){
+  const x = Math.round(Number(n)||0);
+  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+// ===== App state (UI-only MVP) =====
 const state = {
-  user: tg?.initDataUnsafe?.user || null,
   tab: "home",
-  accounts: [],
-  defaultAccount: "Основной",
-  savings: { enabled: false, name: "Сбережения", start: 0 },
-  plan: { income: [], expense: [] },
-  recent: [],
+  // пока это UI-заглушки, чтобы ты допилил интерфейс
+  // позже подключим реальные данные
+  totalBalance: 82000,
+  accounts: [
+    { name:"Основной", balance:57200 },
+    { name:"Личные", balance:25000 },
+    { name:"Карманные", balance:7300 },
+    { name:"Наличные", balance:2100 },
+  ],
+  plan: {
+    income_total: 35000,
+    income_done: 20000,
+    expense_total: 58000,
+    expense_done: 19000,
+    over_income: 1000,
+    over_expense: 0,
+    items_income: [
+      { id:1, title:"зарплата", planned:35000, done:20000, left:15000, kind:"income" }
+    ],
+    items_expense: [
+      { id:2, title:"квартира", planned:19000, done:19000, left:0, kind:"expense" },
+      { id:3, title:"продукты", planned:14000, done:0, left:14000, kind:"expense" },
+      { id:4, title:"карманные", planned:25000, done:0, left:25000, kind:"expense" }
+    ]
+  },
+  lastTx: [
+    { type:"expense", title:"квартира", amount:19000, account:"Основной", when:"сегодня" },
+    { type:"income", title:"зарплата", amount:20000, account:"Основной", when:"сегодня" }
+  ],
+  selectedAccount: "Основной",
+  selectedCat: null,
+  selectedSrc: null,
 };
 
-function fmt(n){ return (Math.round(Number(n)||0)).toLocaleString('ru-RU'); }
-
-function loadLocal(){
-  try{
-    const raw = localStorage.getItem("fp_v2");
-    if(!raw) return;
-    Object.assign(state, JSON.parse(raw));
-  }catch(e){}
+function setSubtitle(){
+  const u = tg?.initDataUnsafe?.user;
+  if (u?.first_name) subtitle.textContent = `Пользователь: ${u.first_name}`;
+  else subtitle.textContent = "";
 }
-function saveLocal(){
-  localStorage.setItem("fp_v2", JSON.stringify({
-    tab: state.tab,
-    accounts: state.accounts,
-    defaultAccount: state.defaultAccount,
-    savings: state.savings,
-    plan: state.plan,
-    recent: state.recent.slice(0,30),
-  }));
-}
-function show(el){ el.classList.remove("hidden"); }
-function hide(el){ el.classList.add("hidden"); }
-
-function showModal(title, bodyHtml){
-  $("modal_title").textContent = title;
-  $("modal_body").innerHTML = bodyHtml;
-  show($("modal"));
-}
-$("modal_close").onclick = () => hide($("modal"));
-$("modal").addEventListener("click", (e)=>{ if(e.target.id==="modal") hide($("modal")); });
-
-function parseBulk(text){
-  const parts = (text||"").split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean);
-  const ok=[], bad=[];
-  for(const p of parts){
-    const m = p.match(/^([0-9\s]+|[0-9]+\s*к)\s+(.+)$/i);
-    if(!m){ bad.push(p); continue; }
-    let numRaw = m[1].toLowerCase().replace(/\s+/g,"").trim();
-    let amount = numRaw.endsWith("к") ? Number(numRaw.replace("к",""))*1000 : Number(numRaw);
-    if(!isFinite(amount) || amount<=0){ bad.push(p); continue; }
-    ok.push({ amount: Math.round(amount), name: m[2].trim() });
-  }
-  return { ok, bad };
-}
-
-function ensureBasics(){
-  if(!Array.isArray(state.accounts) || state.accounts.length===0){
-    state.accounts=["Основной"];
-    state.defaultAccount="Основной";
-  }
-  if(!state.defaultAccount || !state.accounts.includes(state.defaultAccount)){
-    state.defaultAccount=state.accounts[0];
-  }
-  if(!state.savings) state.savings={enabled:false,name:"Сбережения",start:0};
-  if(!state.plan) state.plan={income:[],expense:[]};
-  if(!state.recent) state.recent=[];
-}
-
-function needOnboarding(){ return !localStorage.getItem("fp_v2_done"); }
-function setDone(){ localStorage.setItem("fp_v2_done","1"); }
-
-function confirmInline(text){
-  tg?.HapticFeedback?.notificationOccurred?.("success");
-  tg?.showPopup?.({ title: "Готово", message: text, buttons: [{id:"ok", type:"default", text:"OK"}] });
-}
+setSubtitle();
 
 function sendToBot(payload){
-  try{ tg?.sendData(JSON.stringify(payload)); }catch(e){}
+  // Это MVP-режим через sendData.
+  // Да, Telegram может закрывать WebView — мы это уберём позже через API.
+  try{
+    tg?.sendData(JSON.stringify(payload));
+  }catch(e){
+    toast("Не удалось отправить");
+  }
 }
 
-function monthKey(){
-  const d=new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+// ===== Navigation =====
+function nav(tab){
+  state.tab = tab;
+  document.querySelectorAll(".navbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  render();
+}
+document.querySelectorAll(".navbtn").forEach(b => b.addEventListener("click", ()=> nav(b.dataset.tab)));
+
+// ===== Settings =====
+btnSettings.addEventListener("click", ()=>{
+  openModal(`
+    <div class="modalbar">
+      <button class="backbtn" id="m_close">Закрыть</button>
+      <div class="muted">Настройки</div>
+      <div style="width:80px"></div>
+    </div>
+    <button class="btn ghost" id="m_help">Как это работает</button>
+    <div style="height:10px"></div>
+    <button class="btn ghost" id="m_setup">Первичная настройка</button>
+  `, false);
+  wireModalHandlers();
+});
+
+// ===== Onboarding =====
+function openOnboarding(force=false){
+  const key = "fp_onboarded_v2";
+  if (!force && localStorage.getItem(key) === "1") return;
+
+  openModal(`
+    <div class="modalbar">
+      <button class="backbtn" id="m_close">Закрыть</button>
+      <div class="muted">Ввод</div>
+      <div style="width:80px"></div>
+    </div>
+
+    <h3>Finance Planner</h3>
+    <div class="muted" style="margin-bottom:12px">
+      План — намерение на месяц. Деньги — факт. Конверты — где лежат деньги.
+    </div>
+
+    <div class="card" style="margin:0 0 10px; padding:12px">
+      <h2 style="margin:0 0 6px">План</h2>
+      <div class="muted">Запланируй доходы и расходы. Факт закрывает план автоматически.</div>
+    </div>
+
+    <div class="card" style="margin:0 0 10px; padding:12px">
+      <h2 style="margin:0 0 6px">Сбережения</h2>
+      <div class="muted">Сбережения — это сейф. Здесь ты хранишь и копишь деньги. Они не участвуют в повседневных расходах и не тратятся случайно.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="ob_start">Далее</button>
+      <button class="btn ghost" id="ob_skip">Пропустить</button>
+    </div>
+  `, false);
+
+  wireModalHandlers();
+
+  document.getElementById("ob_skip").onclick = ()=>{
+    localStorage.setItem(key, "1");
+    closeModal();
+  };
+  document.getElementById("ob_start").onclick = ()=>{
+    localStorage.setItem(key, "1");
+    closeModal();
+    openSetupStepAccounts();
+  };
 }
 
-function renderSetupAccounts(){
-  const wrap=$("acc_list"); wrap.innerHTML="";
-  state.accounts.forEach(a=>{
-    const div=document.createElement("div");
-    div.className="pill"+(a===state.defaultAccount?" active":"");
-    div.textContent=a;
-    div.onclick=()=>{ state.defaultAccount=a; renderSetupAccounts(); renderDefaultSelect(); saveLocal(); };
-    wrap.appendChild(div);
+// ===== Setup step 1: accounts (toggle) =====
+function openSetupStepAccounts(){
+  const selected = new Set(["Основной","Личные","Карманные","Наличные"]);
+
+  openModal(`
+    <div class="modalbar">
+      <button class="backbtn" id="m_back">Назад</button>
+      <button class="backbtn" id="m_close">Закрыть</button>
+    </div>
+
+    <h3>Конверты</h3>
+    <div class="muted">Тап по выбранному конверту снимает выбор. Нужен хотя бы один.</div>
+    <div style="height:10px"></div>
+
+    <div class="grid2">
+      ${["Основной","Личные","Карманные","Наличные"].map(a=>`
+        <button class="pill sel" data-acc="${a}">${a}</button>
+      `).join("")}
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="acc_next">Далее</button>
+    </div>
+  `, false);
+
+  wireModalHandlers();
+  document.getElementById("m_back").onclick = ()=> openOnboarding(true);
+
+  modal.querySelectorAll(".pill[data-acc]").forEach(p=>{
+    p.onclick = ()=>{
+      const a = p.dataset.acc;
+      if (selected.has(a)) { selected.delete(a); p.classList.remove("sel"); }
+      else { selected.add(a); p.classList.add("sel"); }
+
+      if (selected.size === 0) {
+        selected.add(a);
+        p.classList.add("sel");
+        toast("Нужен хотя бы один конверт");
+      }
+    };
   });
-}
-function renderDefaultSelect(){
-  const sel=$("acc_default"); sel.innerHTML="";
-  state.accounts.forEach(a=>{
-    const opt=document.createElement("option");
-    opt.value=a; opt.textContent=a;
-    if(a===state.defaultAccount) opt.selected=true;
-    sel.appendChild(opt);
-  });
-  sel.onchange=()=>{ state.defaultAccount=sel.value; renderSetupAccounts(); saveLocal(); };
+
+  document.getElementById("acc_next").onclick = ()=>{
+    closeModal();
+    // отправим боту выбранные конверты
+    sendToBot({ v:1, type:"setup_accounts", accounts: Array.from(selected) });
+    openSetupStepPlan();
+  };
 }
 
-function startApp(){
-  $("subtitle").textContent = state.user ? `Пользователь: ${state.user.first_name||"—"}` : "Открой из Telegram";
-  hide($("onboarding")); hide($("setup")); show($("main"));
-  setTab(state.tab||"home");
-}
-function startSetup(){
-  hide($("onboarding")); show($("setup")); hide($("main"));
-  renderSetupAccounts(); renderDefaultSelect();
-  $("savings_enabled").checked=!!state.savings.enabled;
-  $("savings_name").value=state.savings.name||"Сбережения";
-  $("savings_start").value=state.savings.start?String(state.savings.start):"";
-  $("plan_income").value=state.plan.income.map(x=>`${x.amount} ${x.name}`).join(", ");
-  $("plan_expense").value=state.plan.expense.map(x=>`${x.amount} ${x.name}`).join(", ");
+// ===== Setup step 2: plan bulk with “назад” =====
+function openSetupStepPlan(){
+  openModal(`
+    <div class="modalbar">
+      <button class="backbtn" id="m_back">Назад</button>
+      <button class="backbtn" id="m_close">Закрыть</button>
+    </div>
+
+    <h3>План месяца</h3>
+    <div class="muted" style="margin-bottom:10px">Можно вставить списком. Потом всё редактируется.</div>
+
+    <div class="card" style="margin:0 0 10px; padding:12px">
+      <h2 style="margin:0 0 6px">Доходы</h2>
+      <textarea id="p_income" class="input" placeholder="Пример:
+35000 зарплата,
+15000 пенсия,
+15000 подработка"></textarea>
+      <div class="muted" style="margin-top:6px">Разделители: запятая, ; или новая строка.</div>
+    </div>
+
+    <div class="card" style="margin:0; padding:12px">
+      <h2 style="margin:0 0 6px">Расходы</h2>
+      <textarea id="p_expense" class="input" placeholder="Пример:
+14000 продукты,
+19000 квартира,
+25000 карманные"></textarea>
+      <div class="muted" style="margin-top:6px">Разделители: запятая, ; или новая строка.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="p_done">Готово</button>
+      <button class="btn ghost" id="p_skip">Пропустить</button>
+    </div>
+  `, false);
+
+  wireModalHandlers();
+  document.getElementById("m_back").onclick = ()=>{ closeModal(); openSetupStepAccounts(); };
+
+  document.getElementById("p_skip").onclick = ()=>{
+    closeModal();
+    toast("Ок");
+  };
+
+  document.getElementById("p_done").onclick = ()=>{
+    const income = document.getElementById("p_income").value || "";
+    const expense = document.getElementById("p_expense").value || "";
+    closeModal();
+    sendToBot({ v:1, type:"plan_bulk", income_text: income, expense_text: expense });
+    toast("План отправлен");
+  };
 }
 
-function setTab(tab){
-  state.tab=tab;
-  document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
-  renderTab(tab);
-  saveLocal();
+// ===== Render tabs =====
+function render(){
+  if (state.tab === "home") return renderHome();
+  if (state.tab === "plan") return renderPlan();
+  if (state.tab === "ops") return renderOps();
+  if (state.tab === "analytics") return renderAnalytics();
 }
-document.querySelectorAll(".nav").forEach(b=>b.addEventListener("click", ()=>setTab(b.dataset.tab)));
 
 function renderHome(){
-  const total=0;
-  const accShort=state.accounts.slice(0,4);
-  const recent=state.recent.slice(0,5).map(op=>{
-    const sign=op.type==="income"?"+":op.type==="expense"?"−":"";
-    const cls=op.type==="income"?"good":op.type==="expense"?"bad":"";
-    return `<div class="op"><div class="l"><div class="t">${op.title}</div><div class="s">${op.account||""}</div></div><div class="amt ${cls}">${sign}${fmt(op.amount)} ₽</div></div>`;
-  }).join("");
-  const incPlan=state.plan.income.reduce((s,x)=>s+x.amount,0);
-  const expPlan=state.plan.expense.reduce((s,x)=>s+x.amount,0);
-  return `
-    <div class="card">
-      <div class="h">Баланс</div>
-      <div class="kv"><div class="k">Всего</div><div class="v">${fmt(total)} ₽</div></div>
-      <div class="small mt8">Конверты</div>
-      <div class="listbox">
-        ${accShort.map(a=>`<div class="pill">${a}</div>`).join("")}
-        ${state.accounts.length>4?`<div class="pill" id="acc_more">ещё…</div>`:""}
+  const incPct = state.plan.income_total ? Math.min(100, Math.round((state.plan.income_done/state.plan.income_total)*100)) : 0;
+  const expPct = state.plan.expense_total ? Math.min(100, Math.round((state.plan.expense_done/state.plan.expense_total)*100)) : 0;
+
+  view.innerHTML = `
+    <section class="card">
+      <h2>Баланс</h2>
+      <div class="kpi">${fmt(state.totalBalance)} ₽</div>
+      <div style="height:10px"></div>
+      <div class="row" id="home_accs">
+        ${state.accounts.slice(0,4).map(a=>`
+          <button class="pill ${a.name===state.selectedAccount?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
+        `).join('')}
+        ${state.accounts.length>4?`<button class="pill" id="acc_more">Ещё…</button>`:''}
       </div>
-    </div>
-    <div class="card">
-      <div class="h">План месяца</div>
-      <div class="kv"><div class="k">Доходы (план)</div><div class="v">${fmt(incPlan)} ₽</div></div>
-      <div class="kv"><div class="k">Расходы (план)</div><div class="v">${fmt(expPlan)} ₽</div></div>
-      <div class="progress"><div class="bar" style="width:${incPlan?20:0}%"></div></div>
-      <div class="small mt8">Факт и отклонения добавим после синхронизации.</div>
-    </div>
-    <div class="card">
-      <div class="h">Последние операции</div>
-      <div class="oplist">${recent||`<div class="small">Пока пусто</div>`}</div>
+    </section>
+
+    <section class="card">
+      <h2>План месяца</h2>
+
+      <div class="muted">Доходы</div>
+      <div class="progress"><div style="width:${incPct}%"></div></div>
+      <div class="muted" style="margin-top:6px">${fmt(state.plan.income_done)} / ${fmt(state.plan.income_total)} ₽</div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">Расходы</div>
+      <div class="progress"><div style="width:${expPct}%"></div></div>
+      <div class="muted" style="margin-top:6px">${fmt(state.plan.expense_done)} / ${fmt(state.plan.expense_total)} ₽</div>
+
+      <div style="height:10px"></div>
+      <div class="muted">Сверх плана: +${fmt(state.plan.over_income)} ₽ · Перерасход: ${fmt(state.plan.over_expense)} ₽</div>
+    </section>
+
+    <section class="card">
+      <h2>История</h2>
+      <div class="list">
+        ${state.lastTx.map(txItem).join('')}
+      </div>
+      <div style="height:10px"></div>
+      <button class="btn ghost" id="go_ops">Операции</button>
+    </section>
+  `;
+
+  document.getElementById("go_ops").onclick = ()=> nav("ops");
+  document.querySelectorAll("#home_accs .pill[data-acc]").forEach(b=>{
+    b.onclick = ()=>{
+      const a = b.dataset.acc;
+      // toggle selection: если нажал на выбранный — снимаем
+      if (state.selectedAccount === a) state.selectedAccount = null;
+      else state.selectedAccount = a;
+      render();
+    };
+  });
+}
+
+function txItem(t){
+  const sign = t.type === "income" ? "+" : (t.type === "expense" ? "−" : "↔");
+  return `
+    <div class="item">
+      <div class="left">
+        <div>${escapeHtml(t.title)}</div>
+        <div class="sub">${escapeHtml(t.account || '')} · ${escapeHtml(t.when || '')}</div>
+      </div>
+      <div class="right">${sign}${fmt(t.amount)}</div>
     </div>
   `;
 }
 
 function renderPlan(){
-  const ym=monthKey();
-  const inc = state.plan.income.map((x,i)=>`
-    <div class="op"><div class="l"><div class="t">${x.name}</div><div class="s">План: ${fmt(x.amount)} ₽</div></div>
-    <button class="chip" data-act="income_from_plan" data-i="${i}">Получить</button></div>`
-  ).join("") || `<div class="small">Нет запланированных доходов</div>`;
-  const exp = state.plan.expense.map((x,i)=>`
-    <div class="op"><div class="l"><div class="t">${x.name}</div><div class="s">План: ${fmt(x.amount)} ₽</div></div>
-    <button class="chip" data-act="expense_from_plan" data-i="${i}">Потратить</button></div>`
-  ).join("") || `<div class="small">Нет запланированных расходов</div>`;
-  return `
-    <div class="card"><div class="h">Планирование</div><div class="small">Месяц: ${ym}</div></div>
-    <div class="card"><div class="h">Доходы</div><div class="oplist">${inc}</div>
-      <button class="btn ghost mt10" id="plan_bulk">Добавить/изменить списком</button>
-    </div>
-    <div class="card"><div class="h">Расходы</div><div class="oplist">${exp}</div></div>
+  view.innerHTML = `
+    <section class="card">
+      <h2>Планирование</h2>
+      <div class="muted">Добавление списком НЕ должно сбрасывать остальное (это чинится в боте). В UI делаем правильные кнопки.</div>
+      <div style="height:10px"></div>
+      <button class="btn" id="plan_bulk">Добавить/изменить списком</button>
+      <div style="height:10px"></div>
+      <button class="btn danger" id="plan_clear">Очистить план месяца</button>
+    </section>
+
+    <section class="card">
+      <h2>Доходы</h2>
+      <div class="list">
+        ${state.plan.items_income.map(planItem).join('')}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Расходы</h2>
+      <div class="list">
+        ${state.plan.items_expense.map(planItem).join('')}
+      </div>
+    </section>
   `;
+
+  document.getElementById("plan_bulk").onclick = ()=> openSetupStepPlan();
+  document.getElementById("plan_clear").onclick = ()=>{
+    openModal(`
+      <div class="modalbar">
+        <button class="backbtn" id="m_close">Закрыть</button>
+        <div class="muted">Подтверждение</div>
+        <div style="width:80px"></div>
+      </div>
+      <h3>Очистить план?</h3>
+      <div class="muted">Удалится план текущего месяца.</div>
+      <div class="actions">
+        <button class="btn danger" id="c_ok">Очистить</button>
+        <button class="btn ghost" id="c_no">Отмена</button>
+      </div>
+    `, false);
+    wireModalHandlers();
+    document.getElementById("c_no").onclick = closeModal;
+    document.getElementById("c_ok").onclick = ()=>{
+      closeModal();
+      sendToBot({ v:1, type:"plan_clear" });
+      toast("Отправлено");
+    };
+  };
 }
 
-function topCategories(){
-  const fromPlan=state.plan.expense.map(x=>x.name);
-  const recentCats=state.recent.filter(x=>x.type==="expense").map(x=>x.title);
-  const all=[...fromPlan, ...recentCats];
-  const uniq=[];
-  for(const c of all){
-    if(!uniq.some(u=>u.toLowerCase()===c.toLowerCase())) uniq.push(c);
-  }
-  return uniq.slice(0,10);
+function planItem(p){
+  return `
+    <div class="item">
+      <div class="left">
+        <div>${escapeHtml(p.title)}</div>
+        <div class="sub">План: ${fmt(p.planned)} · Закрыто: ${fmt(p.done)} · Осталось: ${fmt(p.left)}</div>
+      </div>
+      <div class="right"></div>
+    </div>
+  `;
 }
 
 function renderOps(){
-  const cats=topCategories();
-  const accs=state.accounts;
-  const acc4=accs.slice(0,4);
-  const ym=monthKey();
-  return `
-    <div class="card"><div class="h">Операции</div><div class="small">Месяц: ${ym}</div></div>
+  const cats = [
+    { key:"продукты", label:"🛒 Продукты", hint:"план" },
+    { key:"квартира", label:"🏠 Квартира", hint:"план" },
+    { key:"карманные", label:"🎒 Карманные", hint:"план" },
+    { key:"транспорт", label:"🚕 Транспорт", hint:"часто" },
+    { key:"кафе", label:"🍽 Кафе", hint:"часто" },
+    { key:"другое", label:"✍️ Другое", hint:"ввод" },
+  ];
 
-    <div class="card">
-      <div class="h">Расход</div>
-      <input id="exp_amount" class="input" placeholder="Сумма (например 1000)" inputmode="decimal" />
-      <div class="small mt8">Категория</div>
-      <div class="chips" id="exp_cats">
-        ${cats.map(c=>`<button class="chip" data-cat="${c}">${c}</button>`).join("")}
-        <button class="chip" data-cat="_other">Другое</button>
-      </div>
-      <input id="exp_other" class="input mt8 hidden" placeholder="Название категории" />
-      <div class="small mt8">Списать с</div>
-      <div class="chips" id="exp_accs">
-        ${acc4.map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-        ${accs.length>4?`<button class="chip" id="acc_more_btn">ещё…</button>`:""}
-      </div>
-      <button class="btn mt10" id="exp_save">Сохранить расход</button>
-      <div class="small mt8">Подтверждение — в приложении, без чата.</div>
-    </div>
+  const srcs = [
+    { key:"зарплата", label:"💳 Зарплата", hint:"план" },
+    { key:"пенсия", label:"🏦 Пенсия", hint:"план" },
+    { key:"подработка", label:"💳 Подработка", hint:"план" },
+    { key:"незапланированный", label:"➕ Не по плану", hint:"факт" },
+    { key:"другое", label:"✍️ Другое", hint:"ввод" },
+  ];
 
-    <div class="card">
-      <div class="h">Доход</div>
-      <input id="inc_amount" class="input" placeholder="Сумма (например 35000)" inputmode="decimal" />
-      <div class="small mt8">Источник</div>
-      <div class="chips" id="inc_srcs">
-        ${state.plan.income.slice(0,8).map(s=>`<button class="chip" data-src="${s.name}">${s.name}</button>`).join("")}
-        <button class="chip" data-src="_unplanned">Незапланированный</button>
-      </div>
-      <div class="small mt8">Зачислить на</div>
-      <div class="chips" id="inc_accs">
-        ${acc4.map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-        ${accs.length>4?`<button class="chip" id="inc_more_btn">ещё…</button>`:""}
-      </div>
-      <button class="btn mt10" id="inc_save">Сохранить доход</button>
-    </div>
+  view.innerHTML = `
+    <section class="card">
+      <h2>Операции</h2>
+      <div class="muted">Сумма вводом, остальное — выбором. Повторный тап снимает выбор.</div>
+    </section>
 
-    <div class="card">
-      <div class="h">Перевод</div>
-      <div class="grid">
-        <select id="tr_from" class="input">${accs.map(a=>`<option value="${a}">${a}</option>`).join("")}</select>
-        <select id="tr_to" class="input">${accs.map(a=>`<option value="${a}">${a}</option>`).join("")}</select>
+    <section class="card">
+      <h2>Расход</h2>
+      <input id="ex_amt" class="input" placeholder="Сумма (например 1000)" inputmode="numeric" />
+      <div style="height:10px"></div>
+      <div class="muted">Категория</div>
+      <div class="grid3" id="ex_cats">
+        ${cats.map(c=>`
+          <button class="tag ${state.selectedCat===c.key?'sel':''}" data-cat="${c.key}"><span>${c.label}</span><small>${c.hint}</small></button>
+        `).join('')}
       </div>
-      <input id="tr_amount" class="input mt8" placeholder="Сумма (например 20000)" inputmode="decimal" />
-      <button class="btn mt10" id="tr_save">Сохранить перевод</button>
-    </div>
 
-    <div class="card">
-      <div class="h">Сейф</div>
-      ${state.savings.enabled ? `
-        <div class="small">Сейф: ${state.savings.name||"Сбережения"}</div>
-        <div class="grid mt8">
-          <button class="btn ghost" id="sv_add">Пополнить</button>
-          <button class="btn ghost" id="sv_take">Снять</button>
-        </div>
-      ` : `<div class="small">Сейф выключен (включается в первичной настройке).</div>`}
-    </div>
+      <div id="ex_other_wrap" class="${state.selectedCat==='другое'?'':'hidden'}" style="margin-top:10px">
+        <input id="ex_other" class="input" placeholder="Название категории" />
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="muted">Списать со счёта</div>
+      <div class="row" id="ex_accs">
+        ${state.accounts.slice(0,4).map(a=>`
+          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
+        `).join('')}
+      </div>
+
+      <div style="height:12px"></div>
+      <button class="btn" id="ex_save">Записать расход</button>
+    </section>
+
+    <section class="card">
+      <h2>Доход</h2>
+      <input id="in_amt" class="input" placeholder="Сумма (например 35000)" inputmode="numeric" />
+      <div style="height:10px"></div>
+      <div class="muted">Источник</div>
+      <div class="grid3" id="in_srcs">
+        ${srcs.map(s=>`
+          <button class="tag ${state.selectedSrc===s.key?'sel':''}" data-src="${s.key}"><span>${s.label}</span><small>${s.hint}</small></button>
+        `).join('')}
+      </div>
+
+      <div id="in_other_wrap" class="${state.selectedSrc==='другое'?'':'hidden'}" style="margin-top:10px">
+        <input id="in_other" class="input" placeholder="Название источника" />
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="muted">Зачислить на счёт</div>
+      <div class="row" id="in_accs">
+        ${state.accounts.slice(0,4).map(a=>`
+          <button class="pill ${state.selectedAccount===a.name?'sel':''}" data-acc="${a.name}">${a.name} (${fmt(a.balance)})</button>
+        `).join('')}
+      </div>
+
+      <div style="height:12px"></div>
+      <button class="btn" id="in_save">Записать доход</button>
+    </section>
   `;
+
+  // toggle категории
+  document.querySelectorAll("#ex_cats .tag").forEach(b=>{
+    b.onclick = ()=>{
+      const c = b.dataset.cat;
+      if (state.selectedCat === c) state.selectedCat = null;
+      else state.selectedCat = c;
+      // умный дефолт счёта
+      if (state.selectedCat === "карманные") state.selectedAccount = "Карманные";
+      if (state.selectedCat === "квартира") state.selectedAccount = "Основной";
+      render();
+    };
+  });
+
+  document.querySelectorAll("#in_srcs .tag").forEach(b=>{
+    b.onclick = ()=>{
+      const s = b.dataset.src;
+      if (state.selectedSrc === s) state.selectedSrc = null;
+      else state.selectedSrc = s;
+      render();
+    };
+  });
+
+  // toggle счёта
+  document.querySelectorAll("#ex_accs .pill, #in_accs .pill").forEach(b=>{
+    b.onclick = ()=>{
+      const a = b.dataset.acc;
+      if (state.selectedAccount === a) state.selectedAccount = null;
+      else state.selectedAccount = a;
+      render();
+    };
+  });
+
+  document.getElementById("ex_save").onclick = ()=>{
+    const amt = (document.getElementById("ex_amt").value||"").trim();
+    if (!amt) return toast("Введи сумму");
+    if (!state.selectedCat) return toast("Выбери категорию");
+    if (!state.selectedAccount) return toast("Выбери счёт");
+
+    let cat = state.selectedCat;
+    if (cat === "другое") {
+      cat = (document.getElementById("ex_other").value||"").trim().toLowerCase();
+      if (!cat) return toast("Введи категорию");
+    }
+    sendToBot({ v:1, type:"expense", amount: amt, category: cat, account: state.selectedAccount });
+    toast("Отправлено");
+  };
+
+  document.getElementById("in_save").onclick = ()=>{
+    const amt = (document.getElementById("in_amt").value||"").trim();
+    if (!amt) return toast("Введи сумму");
+    if (!state.selectedSrc) return toast("Выбери источник");
+    if (!state.selectedAccount) return toast("Выбери счёт");
+
+    let src = state.selectedSrc;
+    if (src === "другое") {
+      src = (document.getElementById("in_other").value||"").trim().toLowerCase();
+      if (!src) return toast("Введи источник");
+    }
+    sendToBot({ v:1, type:"income", amount: amt, category: src, account: state.selectedAccount });
+    toast("Отправлено");
+  };
 }
 
 function renderAnalytics(){
-  return `
-    <div class="card">
-      <div class="h">Аналитика</div>
-      <div class="p">Здесь будут графики и диаграммы: план vs факт, категории, динамика по месяцам. Добавим после синхронизации.</div>
-    </div>
+  view.innerHTML = `
+    <section class="card">
+      <h2>Аналитика</h2>
+      <div class="muted">Пока это UI. Позже подключим реальные диаграммы и данные.</div>
+      <div style="height:10px"></div>
+      <button class="btn ghost" id="an_req">Запросить отчёт в чате</button>
+    </section>
   `;
+  document.getElementById("an_req").onclick = ()=>{
+    sendToBot({ v:1, type:"analytics_request" });
+    toast("Отправлено");
+  };
 }
 
-function renderTab(tab){
-  const content=$("content");
-  if(tab==="home") content.innerHTML=renderHome();
-  if(tab==="plan") content.innerHTML=renderPlan();
-  if(tab==="ops") content.innerHTML=renderOps();
-  if(tab==="analytics") content.innerHTML=renderAnalytics();
+// ===== Modal wiring (после modalBack нужно снова навесить) =====
+function wireModalHandlers(){
+  const close = document.getElementById("m_close");
+  if (close) close.onclick = closeModal;
+  const back = document.getElementById("m_back");
+  if (back) back.onclick = modalBack;
 
-  if(tab==="home"){
-    const more=$("acc_more");
-    if(more){
-      more.onclick=()=>showModal("Конверты", state.accounts.map(a=>`<div class="op"><div class="t">${a}</div></div>`).join(""));
-    }
-  }
+  const mHelp = document.getElementById("m_help");
+  if (mHelp) mHelp.onclick = ()=>{ closeModal(); openOnboarding(true); };
 
-  if(tab==="plan"){
-    $("plan_bulk").onclick=()=>{ hide($("main")); show($("setup")); window.scrollTo({top:0,behavior:"smooth"}); };
-
-    document.querySelectorAll("[data-act='income_from_plan']").forEach(btn=>{
-      btn.onclick=()=>{
-        const i=Number(btn.dataset.i);
-        const item=state.plan.income[i];
-        showModal("Получить доход", `
-          <div class="small">План: ${fmt(item.amount)} ₽ • ${item.name}</div>
-          <input id="m_amt" class="input mt8" value="${item.amount}" />
-          <div class="small mt8">Конверт</div>
-          <div class="chips" id="m_accs">
-            ${state.accounts.slice(0,6).map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-          </div>
-          <button class="btn mt10" id="m_ok">Сохранить</button>
-        `);
-        let selAcc=state.defaultAccount;
-        $("modal_body").querySelectorAll("#m_accs .chip").forEach(c=>{
-          c.onclick=()=>{
-            $("modal_body").querySelectorAll("#m_accs .chip").forEach(x=>x.classList.remove("active"));
-            c.classList.add("active"); selAcc=c.dataset.acc;
-          };
-        });
-        $("m_ok").onclick=()=>{
-          const amt=Number(($("m_amt").value||"").replace(/\s+/g,"").replace(",","."));
-          if(!amt||amt<=0) return;
-          state.recent.unshift({type:"income",amount:amt,title:item.name,account:selAcc});
-          state.recent=state.recent.slice(0,30); saveLocal();
-          sendToBot({v:2,type:"income",amount:amt,category:item.name,account:selAcc,plan_hint:{kind:"income",name:item.name}});
-          hide($("modal")); confirmInline("Доход сохранён"); setTab("ops");
-        };
-      };
-    });
-
-    document.querySelectorAll("[data-act='expense_from_plan']").forEach(btn=>{
-      btn.onclick=()=>{
-        const i=Number(btn.dataset.i);
-        const item=state.plan.expense[i];
-        showModal("Расход по плану", `
-          <div class="small">План: ${fmt(item.amount)} ₽ • ${item.name}</div>
-          <input id="m_amt" class="input mt8" placeholder="Сумма (например 1000)" />
-          <div class="small mt8">Конверт</div>
-          <div class="chips" id="m_accs">
-            ${state.accounts.slice(0,6).map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-          </div>
-          <button class="btn mt10" id="m_ok">Сохранить</button>
-        `);
-        let selAcc=state.defaultAccount;
-        $("modal_body").querySelectorAll("#m_accs .chip").forEach(c=>{
-          c.onclick=()=>{
-            $("modal_body").querySelectorAll("#m_accs .chip").forEach(x=>x.classList.remove("active"));
-            c.classList.add("active"); selAcc=c.dataset.acc;
-          };
-        });
-        $("m_ok").onclick=()=>{
-          const amt=Number(($("m_amt").value||"").replace(/\s+/g,"").replace(",","."));
-          if(!amt||amt<=0) return;
-          state.recent.unshift({type:"expense",amount:amt,title:item.name,account:selAcc});
-          state.recent=state.recent.slice(0,30); saveLocal();
-          sendToBot({v:2,type:"expense",amount:amt,category:item.name,account:selAcc,plan_hint:{kind:"expense",name:item.name}});
-          hide($("modal")); confirmInline("Расход сохранён"); setTab("ops");
-        };
-      };
-    });
-  }
-
-  if(tab==="ops"){
-    let expCat=null; let expAcc=state.defaultAccount;
-
-    document.querySelectorAll("#exp_cats .chip").forEach(btn=>{
-      btn.onclick=()=>{
-        document.querySelectorAll("#exp_cats .chip").forEach(x=>x.classList.remove("active"));
-        btn.classList.add("active");
-        const c=btn.dataset.cat;
-        if(c==="_other"){ $("exp_other").classList.remove("hidden"); expCat=null; }
-        else{
-          $("exp_other").classList.add("hidden"); expCat=c;
-          const maybe=state.accounts.find(a=>a.toLowerCase()===c.toLowerCase());
-          if(maybe){ expAcc=maybe; setTab("ops"); }
-        }
-      };
-    });
-
-    document.querySelectorAll("#exp_accs .chip").forEach(btn=>{
-      if(btn.id==="acc_more_btn"){
-        btn.onclick=()=>{
-          showModal("Выбери конверт", state.accounts.map(a=>`<button class="chip" data-pick="${a}">${a}</button>`).join(""));
-          $("modal_body").querySelectorAll("[data-pick]").forEach(p=>{
-            p.onclick=()=>{ expAcc=p.dataset.pick; hide($("modal")); setTab("ops"); };
-          });
-        };
-      }else{
-        btn.onclick=()=>{
-          document.querySelectorAll("#exp_accs .chip").forEach(x=>x.classList.remove("active"));
-          btn.classList.add("active"); expAcc=btn.dataset.acc;
-        };
-      }
-    });
-
-    $("exp_save").onclick=()=>{
-      const amt=Number(($("exp_amount").value||"").replace(/\s+/g,"").replace(",","."));
-      const cat=expCat || ($("exp_other").value||"").trim();
-      if(!amt||amt<=0) return confirmInline("Укажи сумму");
-      if(!cat) return confirmInline("Выбери категорию");
-      state.recent.unshift({type:"expense",amount:amt,title:cat,account:expAcc});
-      state.recent=state.recent.slice(0,30); saveLocal();
-      sendToBot({v:2,type:"expense",amount:amt,category:cat,account:expAcc});
-      $("exp_amount").value=""; $("exp_other").value="";
-      confirmInline("Расход сохранён");
-    };
-
-    let incSrc=null; let incAcc=state.defaultAccount;
-
-    document.querySelectorAll("#inc_srcs .chip").forEach(btn=>{
-      btn.onclick=()=>{
-        document.querySelectorAll("#inc_srcs .chip").forEach(x=>x.classList.remove("active"));
-        btn.classList.add("active");
-        const s=btn.dataset.src;
-        incSrc = s==="_unplanned" ? "Незапланированный доход" : s;
-      };
-    });
-
-    document.querySelectorAll("#inc_accs .chip").forEach(btn=>{
-      if(btn.id==="inc_more_btn"){
-        btn.onclick=()=>{
-          showModal("Выбери конверт", state.accounts.map(a=>`<button class="chip" data-pick="${a}">${a}</button>`).join(""));
-          $("modal_body").querySelectorAll("[data-pick]").forEach(p=>{
-            p.onclick=()=>{ incAcc=p.dataset.pick; hide($("modal")); setTab("ops"); };
-          });
-        };
-      }else{
-        btn.onclick=()=>{
-          document.querySelectorAll("#inc_accs .chip").forEach(x=>x.classList.remove("active"));
-          btn.classList.add("active"); incAcc=btn.dataset.acc;
-        };
-      }
-    });
-
-    $("inc_save").onclick=()=>{
-      const amt=Number(($("inc_amount").value||"").replace(/\s+/g,"").replace(",","."));
-      if(!amt||amt<=0) return confirmInline("Укажи сумму");
-      const src=incSrc || "Незапланированный доход";
-      state.recent.unshift({type:"income",amount:amt,title:src,account:incAcc});
-      state.recent=state.recent.slice(0,30); saveLocal();
-      sendToBot({v:2,type:"income",amount:amt,category:src,account:incAcc});
-      $("inc_amount").value="";
-      confirmInline("Доход сохранён");
-    };
-
-    $("tr_save").onclick=()=>{
-      const amt=Number(($("tr_amount").value||"").replace(/\s+/g,"").replace(",","."));
-      const f=$("tr_from").value, t=$("tr_to").value;
-      if(!amt||amt<=0) return confirmInline("Укажи сумму");
-      if(f===t) return confirmInline("Выбери разные конверты");
-      state.recent.unshift({type:"transfer",amount:amt,title:`${f} → ${t}`,account:""});
-      state.recent=state.recent.slice(0,30); saveLocal();
-      sendToBot({v:2,type:"transfer",amount:amt,from:f,to:t});
-      $("tr_amount").value="";
-      confirmInline("Перевод сохранён");
-    };
-
-    if(state.savings.enabled){
-      $("sv_add").onclick=()=>{
-        showModal("Пополнить сейф", `
-          <div class="small">Сейф: ${state.savings.name}</div>
-          <input id="m_amt" class="input mt8" placeholder="Сумма" />
-          <div class="small mt8">Откуда</div>
-          <div class="chips" id="m_accs">
-            ${state.accounts.slice(0,6).map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-          </div>
-          <button class="btn mt10" id="m_ok">Сохранить</button>
-        `);
-        let from=state.defaultAccount;
-        $("modal_body").querySelectorAll("#m_accs .chip").forEach(c=>{
-          c.onclick=()=>{
-            $("modal_body").querySelectorAll("#m_accs .chip").forEach(x=>x.classList.remove("active"));
-            c.classList.add("active"); from=c.dataset.acc;
-          };
-        });
-        $("m_ok").onclick=()=>{
-          const amt=Number(($("m_amt").value||"").replace(/\s+/g,"").replace(",","."));
-          if(!amt||amt<=0) return;
-          state.recent.unshift({type:"transfer",amount:amt,title:`${from} → ${state.savings.name}`,account:""});
-          state.recent=state.recent.slice(0,30); saveLocal();
-          sendToBot({v:2,type:"transfer",amount:amt,from:from,to:state.savings.name});
-          hide($("modal")); confirmInline("Сейф пополнен");
-        };
-      };
-      $("sv_take").onclick=()=>{
-        showModal("Снять из сейфа", `
-          <div class="small">Сейф: ${state.savings.name}</div>
-          <input id="m_amt" class="input mt8" placeholder="Сумма" />
-          <div class="small mt8">Куда</div>
-          <div class="chips" id="m_accs">
-            ${state.accounts.slice(0,6).map(a=>`<button class="chip ${a===state.defaultAccount?'active':''}" data-acc="${a}">${a}</button>`).join("")}
-          </div>
-          <button class="btn mt10" id="m_ok">Сохранить</button>
-        `);
-        let to=state.defaultAccount;
-        $("modal_body").querySelectorAll("#m_accs .chip").forEach(c=>{
-          c.onclick=()=>{
-            $("modal_body").querySelectorAll("#m_accs .chip").forEach(x=>x.classList.remove("active"));
-            c.classList.add("active"); to=c.dataset.acc;
-          };
-        });
-        $("m_ok").onclick=()=>{
-          const amt=Number(($("m_amt").value||"").replace(/\s+/g,"").replace(",","."));
-          if(!amt||amt<=0) return;
-          state.recent.unshift({type:"transfer",amount:amt,title:`${state.savings.name} → ${to}`,account:""});
-          state.recent=state.recent.slice(0,30); saveLocal();
-          sendToBot({v:2,type:"transfer",amount:amt,from:state.savings.name,to:to});
-          hide($("modal")); confirmInline("Снятие сохранено");
-        };
-      };
-    }
-  }
+  const mSetup = document.getElementById("m_setup");
+  if (mSetup) mSetup.onclick = ()=>{ closeModal(); openSetupStepAccounts(); };
 }
 
-function boot(){
-  loadLocal(); ensureBasics();
+// старт
+openOnboarding(false);
+render();
 
-  if(needOnboarding()){
-    show($("onboarding")); hide($("setup")); hide($("main"));
-    $("ob_start").onclick=()=>startSetup();
-    $("ob_skip").onclick=()=>{ setDone(); startApp(); };
-    return;
-  }
-
-  const needs = state.accounts.length===0 || (state.plan.income.length===0 && state.plan.expense.length===0);
-  if(needs) startSetup(); else startApp();
-}
-
-$("setup_next").onclick=()=>{ setDone(); saveLocal(); startApp(); };
-
-$("acc_presets").addEventListener("click",(e)=>{
-  const btn=e.target.closest("[data-acc]"); if(!btn) return;
-  const name=btn.dataset.acc;
-  if(!state.accounts.includes(name)) state.accounts.push(name);
-  renderSetupAccounts(); renderDefaultSelect(); saveLocal();
-});
-
-$("acc_add").onclick=()=>{
-  const v=($("acc_custom").value||"").trim(); if(!v) return;
-  if(!state.accounts.includes(v)) state.accounts.push(v);
-  $("acc_custom").value="";
-  renderSetupAccounts(); renderDefaultSelect(); saveLocal();
-};
-
-$("savings_enabled").onchange=()=>{ state.savings.enabled=$("savings_enabled").checked; saveLocal(); };
-$("savings_name").oninput=()=>{ state.savings.name=($("savings_name").value||"").trim()||"Сбережения"; saveLocal(); };
-$("savings_start").oninput=()=>{
-  const v=Number(($("savings_start").value||"").replace(/\s+/g,"").replace(",","."));
-  state.savings.start=isFinite(v)?Math.round(v):0; saveLocal();
-};
-
-$("plan_save").onclick=()=>{
-  const inc=parseBulk($("plan_income").value);
-  const exp=parseBulk($("plan_expense").value);
-  state.plan.income=inc.ok; state.plan.expense=exp.ok; saveLocal();
-  $("plan_result").textContent =
-    `Доходы: добавлено ${inc.ok.length}${inc.bad.length?`, ошибки: ${inc.bad.length}`:""} • ` +
-    `Расходы: добавлено ${exp.ok.length}${exp.bad.length?`, ошибки: ${exp.bad.length}`:""}`;
-  sendToBot({v:2,type:"plan_bulk",month:monthKey(),income:inc.ok,expense:exp.ok});
-  confirmInline("План сохранён");
-};
-
-boot();
+function escapeHtml(s){ return String(s??"").replace(/[&<>\"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
