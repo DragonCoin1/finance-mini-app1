@@ -2,19 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="description" content="Finance Planner — мини-приложение для учёта личных финансов в Telegram WebApp" />
   <meta name="theme-color" content="#070510" />
   <title>Finance Planner</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    /* Небольшие локальные стили для быстрых действий */
-    .top-extra { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
-    .quick-actions { display:flex; gap:8px; flex:1 }
-    .quick-actions .btn { padding:8px 10px; font-weight:700; }
-    .version { font-size:12px; color:rgba(245,243,255,0.6); }
-  </style>
 </head>
 <body>
   <header class="top" role="banner">
@@ -25,12 +18,17 @@
     <button id="btn_settings" class="iconbtn" title="Настройки" aria-label="Открыть настройки">⚙️</button>
   </header>
 
+  <!-- Верхняя панель: быстрые действия скрыты по умолчанию -->
   <div class="top-extra">
-    <div class="quick-actions" aria-hidden="false">
+    <div class="quick-actions" id="quick_actions" aria-hidden="true" style="display:none">
       <button class="btn ghost" id="qa_income" aria-label="Добавить доход">➕ Доход</button>
       <button class="btn ghost" id="qa_expense" aria-label="Добавить расход">➖ Расход</button>
     </div>
-    <div class="version muted">v0.2</div>
+
+    <div class="global-tools" style="display:flex;gap:8px;align-items:center">
+      <button class="btn ghost" id="global_plan_clear" title="Очистить план месяца">Очистить план</button>
+      <div class="version muted">v0.2</div>
+    </div>
   </div>
 
   <main id="view" role="main" aria-live="polite"></main>
@@ -45,35 +43,6 @@
   <div id="modal_backdrop" class="backdrop hidden" role="dialog" aria-hidden="true">
     <div id="modal" class="modal"></div>
   </div>
-
-  <script>
-    // Быстрые действия — имитируют навигацию и ставят фокус на поле суммы
-    (function(){
-      function openOpsAndFocus(selectorToFocus){
-        const opsBtn = document.querySelector('.navbtn[data-tab="ops"]');
-        if (opsBtn) opsBtn.click();
-        setTimeout(()=>{
-          const el = document.querySelector(selectorToFocus);
-          if (el && typeof el.focus === 'function') el.focus();
-        }, 250);
-      }
-
-      document.addEventListener('click', function(e){
-        if (e.target && e.target.id === 'qa_income'){
-          openOpsAndFocus('#in_amt');
-        }
-        if (e.target && e.target.id === 'qa_expense'){
-          openOpsAndFocus('#ex_amt');
-        }
-      });
-
-      // На случай, если приложение загружено в среде без JS (progressive enhancement)
-      var qi = document.getElementById('qa_income');
-      if (qi) qi.setAttribute('type','button');
-      var qe = document.getElementById('qa_expense');
-      if (qe) qe.setAttribute('type','button');
-    })();
-  </script>
 
   <script src="app.js"></script>
 </body>
