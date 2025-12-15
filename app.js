@@ -112,6 +112,10 @@ const defaultState = {
 
 let state = loadState() || structuredCloneSafe(defaultState);
 
+// temporary inputs (preserve across renders)
+state.tempExAmt = state.tempExAmt || "";
+state.tempInAmt = state.tempInAmt || "";
+
 function setSubtitle(){
   const u = tg?.initDataUnsafe?.user;
   if (!subtitle) return;
@@ -205,7 +209,6 @@ function parseBulk(text){
   if (!text) return out;
   const parts = text.replace(/;/g,",").replace(/\n/g,",").split(",").map(s=>s.trim()).filter(Boolean);
   for (const p of parts){
-    // формат: 35000 зарплата  — поддерживаем 35k и 35к
     const m = p.match(/^([0-9 ]+|[0-9]+[kкKК])\s+(.+)$/i);
     if (!m) continue;
     let amtRaw = m[1].replace(/\s+/g,"").toLowerCase();
@@ -424,6 +427,14 @@ function nav(tab){
   render();
 }
 document.querySelectorAll(".navbtn").forEach(b => b.addEventListener("click", ()=> nav(b.dataset.tab)));
+
+function updateQuickActionsVisibility(){
+  const show = state.tab === "ops";
+  const qaIncome = document.getElementById("qa_income");
+  const qaExpense = document.getElementById("qa_expense");
+  if (qaIncome) qaIncome.style.display = show ? "inline-block" : "none";
+  if (qaExpense) qaExpense.style.display = show ? "inline-block" : "none";
+}
 
 // ===== render =====
 function render(){
@@ -681,6 +692,19 @@ function renderOps(){
     </section>
   `;
 
+  // восстановим/свяжем временные поля суммы
+  const exAmtEl = document.getElementById("ex_amt");
+  if (exAmtEl){
+    exAmtEl.value = state.tempExAmt || "";
+    exAmtEl.addEventListener("input", ()=> { state.tempExAmt = exAmtEl.value; });
+  }
+
+  const inAmtEl = document.getElementById("in_amt");
+  if (inAmtEl){
+    inAmtEl.value = state.tempInAmt || "";
+    inAmtEl.addEventListener("input", ()=> { state.tempInAmt = inAmtEl.value; });
+  }
+
   // категории — toggle
   document.querySelectorAll("#ex_cats .tag").forEach(b=>{
     b.onclick = ()=>{
@@ -717,7 +741,7 @@ function renderOps(){
 
   // save expense
   document.getElementById("ex_save").onclick = ()=>{
-    const amtRaw = (document.getElementById("ex_amt").value||"").trim();
+    const amtRaw = (state.tempExAmt || (document.getElementById("ex_amt").value||"")).trim();
     const amt = parseInt(amtRaw,10);
     if (!Number.isFinite(amt) || amt<=0) return toast("Введи сумму");
     if (!state.selectedCat) return toast("Выбери категорию");
@@ -736,13 +760,14 @@ function renderOps(){
     sendToBot({ v:1, type:"expense", amount: String(amt), category: cat, account: state.selectedAccount });
 
     toast("Сохранено");
+    state.tempExAmt = "";
     document.getElementById("ex_amt").value = "";
     render();
   };
 
   // save income
   document.getElementById("in_save").onclick = ()=>{
-    const amtRaw = (document.getElementById("in_amt").value||"").trim();
+    const amtRaw = (state.tempInAmt || (document.getElementById("in_amt").value||"")).trim();
     const amt = parseInt(amtRaw,10);
     if (!Number.isFinite(amt) || amt<=0) return toast("Введи сумму");
     if (!state.selectedSrc) return toast("Выбери источник");
@@ -761,9 +786,46 @@ function renderOps(){
     sendToBot({ v:1, type:"income", amount: String(amt), category: src, account: state.selectedAccount });
 
     toast("Сохранено");
+    state.tempInAmt = "";
     document.getElementById("in_amt").value = "";
     render();
   };
+
+  // обновим видимость быстрых действий
+  updateQuickActionsVisibility();
+
+  // глобальная кнопка очистки (если есть)
+  const globalPlanClear = document.getElementById("global_plan_clear");
+  if (globalPlanClear) {
+    globalPlanClear.onclick = ()=>{
+      openModal(`
+        <div class="modalbar">
+          <button class="backbtn" id="m_close">Закрыть</button>
+          <div class="muted">Подтверждение</div>
+          <div style="width:80px"></div>
+        </div>
+        <h3>Очистить план?</h3>
+        <div class="muted">Удалится план на этом устройстве и отправится команда боту.</div>
+        <div class="actions">
+          <button class="btn danger" id="c_ok">Очистить</button>
+          <button class="btn ghost" id="c_no">Отмена</button>
+        </div>
+      `, false);
+      wireModalHandlers();
+      document.getElementById("c_no").onclick = closeModal;
+      document.getElementById("c_ok").onclick = ()=>{
+        state.plan.income = [];
+        state.plan.expense = [];
+        state.plan.over_income = 0;
+        state.plan.over_expense = 0;
+        saveState();
+        sendToBot({ v:1, type:"plan_clear" });
+        closeModal();
+        toast("План очищен");
+        render();
+      };
+    };
+  }
 }
 
 function renderAnalytics(){
