@@ -239,8 +239,6 @@ textarea{min-height:110px;resize:none}
 .legend .lg{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px}
 .legend .name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:800}
 .legend .val{white-space:nowrap;color:var(--muted);font-weight:900}
-
-/* Heatmap */
 .hmWrap{overflow:auto;border-radius:18px}
 .hmNote{margin-top:8px}
 
@@ -278,7 +276,7 @@ textarea{min-height:110px;resize:none}
   border-color:rgba(0,170,255,.25);
 }
 
-/* MODAL — поверх всего */
+/* MODAL */
 .backdrop{
   position:fixed; inset:0;
   background:rgba(0,0,0,.62);
