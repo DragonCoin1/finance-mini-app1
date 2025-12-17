@@ -3,45 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="description" content="Finance Planner — мини-приложение для учёта личных финансов в Telegram WebApp" />
-  <meta name="theme-color" content="#070510" />
+  <meta name="theme-color" content="#05020b" />
   <title>Finance Planner</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <header class="top" role="banner">
+  <header class="topbar">
     <div class="brand">
-      <div class="title">Finance Planner</div>
-      <div id="subtitle" class="subtitle">Нажми ⚙️ для настройки</div>
+      <div class="brand__title">Finance Planner</div>
+      <div id="brand_sub" class="brand__sub">test v0.6</div>
     </div>
-    <button id="btn_settings" class="iconbtn" title="Настройки" aria-label="Открыть настройки">⚙️</button>
+    <button id="btn_settings" class="iconbtn" aria-label="Настройки">⚙️</button>
   </header>
 
-  <!-- Верхняя панель: быстрые действия скрыты по умолчанию -->
-  <div class="top-extra">
-    <div class="quick-actions" id="quick_actions" aria-hidden="true" style="display:none">
-      <button class="btn ghost" id="qa_income" aria-label="Добавить доход">➕ Доход</button>
-      <button class="btn ghost" id="qa_expense" aria-label="Добавить расход">➖ Расход</button>
-    </div>
+  <main id="view" class="view" role="main" aria-live="polite"></main>
 
-    <div class="global-tools" style="display:flex;gap:8px;align-items:center">
-      <button class="btn ghost" id="global_plan_clear" title="Очистить план месяца">Очистить план</button>
-      <div class="version muted">v0.2</div>
-    </div>
-  </div>
-
-  <main id="view" role="main" aria-live="polite"></main>
-
-  <nav class="bottom" role="navigation" aria-label="Главная навигация">
-    <button class="navbtn active" data-tab="home">Главная</button>
+  <nav class="bottombar" role="navigation" aria-label="Навигация">
+    <button class="navbtn sel" data-tab="home">Главная</button>
     <button class="navbtn" data-tab="plan">Планирование</button>
     <button class="navbtn" data-tab="ops">Операции</button>
     <button class="navbtn" data-tab="analytics">Аналитика</button>
   </nav>
 
-  <div id="modal_backdrop" class="backdrop hidden" role="dialog" aria-hidden="true">
-    <div id="modal" class="modal"></div>
+  <div id="backdrop" class="backdrop hidden" aria-hidden="true">
+    <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
   </div>
 
   <script src="app.js"></script>
